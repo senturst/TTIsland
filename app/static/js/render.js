@@ -142,6 +142,102 @@ export function renderEnemies() {
 }
 
 /* ------------------------------------------------------------------ */
+/** 随身物品面板。
+ *
+ * 必须有这个面板：纪念品 / 材料 / 弹药这三类不会生成操作按钮
+ * （它们没有可执行的动作），如果只靠命令区的按钮来展现物品，
+ * 玩家拿到全家福这种计分道具后是完全看不见的。
+ */
+const KIND_ORDER = { weapon: 0, armor: 1, consumable: 2, trinket: 3, material: 4, ammo: 5 };
+
+export function renderPack(onAction) {
+  const box = document.getElementById("pack-items");
+  const wrap = document.getElementById("pack");
+  if (!box || !wrap) return;
+
+  const entries = [];
+
+  // 已装备的排最前，让玩家一眼看到自己的装备状态
+  if (state.weapon?.name && state.weapon.name !== "空手") {
+    entries.push({
+      id: "__held_weapon__", name: state.weapon.name, qty: 1,
+      kind: "weapon", held: true,
+      wear: state.weapon.durability != null ? state.weapon.durability : null,
+    });
+  }
+  if (state.armor) {
+    entries.push({ id: "__held_armor__", name: state.armor, qty: 1, kind: "armor", held: true });
+  }
+  for (const it of state.inventory || []) {
+    if (it.qty > 0) entries.push({ ...it });
+  }
+
+  entries.sort((a, b) => {
+    const d = (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9);
+    return d !== 0 ? d : a.name.localeCompare(b.name, "zh");
+  });
+
+  // 面板常驻显示，空了就说"空空如也"。
+  // 不要用"空就隐藏"——那会让玩家分不清"没有东西"和"界面坏了"。
+  box.innerHTML = "";
+  if (!entries.length) {
+    const none = document.createElement("span");
+    none.className = "pack-empty";
+    none.textContent = "空空如也";
+    box.appendChild(none);
+    return;
+  }
+
+  for (const it of entries) {
+    const canAct = !it.held && (it.usable || it.wearable);
+    const cls = ["pack-item"];
+    if (it.held) cls.push("weapon-held");
+    else if (canAct) cls.push("act");
+    else cls.push("inert");
+    if (it.kind === "trinket") cls.push("trinket");
+
+    const node = document.createElement(canAct ? "button" : "span");
+    node.className = cls.join(" ");
+    if (canAct) node.type = "button";
+
+    const ic = document.createElement("span");
+    ic.className = "icon";
+    ic.textContent = state.icons?.[it.id] || (
+      it.kind === "trinket" ? "📦" : it.kind === "ammo" ? "🔩" :
+      it.kind === "material" ? "🧱" : "•"
+    );
+
+    const nm = document.createElement("span");
+    nm.textContent = it.name;
+
+    node.append(ic, nm);
+
+    if (it.qty > 1) {
+      const q = document.createElement("span");
+      q.className = "qty";
+      q.textContent = `×${it.qty}`;
+      node.appendChild(q);
+    }
+    if (it.wear != null) {
+      const w = document.createElement("span");
+      w.className = "wear";
+      w.textContent = `·${it.wear}`;
+      w.title = "剩余耐久";
+      node.appendChild(w);
+    }
+
+    if (canAct) {
+      const actionId = it.usable ? "use" : "equip";
+      node.title = it.usable ? `使用 ${it.name}` : `换上 ${it.name}`;
+      node.addEventListener("click", () =>
+        onAction({ id: actionId, item: it.id, label: it.name })
+      );
+    }
+    box.appendChild(node);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 export function renderCommands(onAction) {
   const box = document.getElementById("cmd-buttons");
   if (!box) return;
@@ -171,6 +267,7 @@ export function renderCommands(onAction) {
 export function renderAll(onAction) {
   renderHUD();
   renderEnemies();
+  renderPack(onAction);
   renderCommands(onAction);
 }
 

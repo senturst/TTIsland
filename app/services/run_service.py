@@ -1164,6 +1164,29 @@ class RunEngine:
             + (f"（{band}）" if band else "")
             + f" · 噪音 {noise.value(st):.1f}/10"
         )
+        # 文本版背包。纪念品/材料/弹药不会生成操作按钮，
+        # 不给一份文字清单的话，命令行玩家完全看不到自己有什么。
+        if st.get("weapon"):
+            w = st["weapon"]
+            wear = f"（耐久 {w['durability']}）" if w.get("durability") is not None else ""
+            self._log(f"  武器：{self.cfg.item(w['id'])['name']}{wear}")
+        if st.get("armor"):
+            self._log(f"  护甲：{self.cfg.item(st['armor']['id'])['name']}")
+
+        order = {"weapon": 0, "armor": 1, "consumable": 2, "trinket": 3, "material": 4, "ammo": 5}
+        bag = sorted(
+            (e for e in st["inventory"] if e["qty"] > 0),
+            key=lambda e: (order.get(self.cfg.item_kind(e["id"]), 9),
+                           self.cfg.item(e["id"])["name"]),
+        )
+        if bag:
+            parts = []
+            for e in bag:
+                nm = self.cfg.item(e["id"])["name"]
+                parts.append(f"{nm}×{e['qty']}" if e["qty"] > 1 else nm)
+            self._log("  随身：" + "、".join(parts))
+        else:
+            self._log("  随身：空空如也")
 
     async def _act_give_up(self, payload: dict) -> None:
         await self._die("放弃了")
@@ -1421,12 +1444,8 @@ class RunEngine:
             if (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "ranged":
                 acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
             acts.append({"id": "flee", "label": "逃跑", "kind": "ghost"})
-            for e in st["inventory"]:
-                if self.cfg.item_kind(e["id"]) == "consumable":
-                    acts.append({
-                        "id": "use", "label": f"用{self.cfg.item(e['id'])['name']}",
-                        "item": e["id"], "kind": "ghost",
-                    })
+            # 物品不再生成按钮：界面上的「随身」面板统一负责展示与操作，
+            # 否则物品一多，命令区会被"用绷带/用罐头/换上砍刀…"淹没。
             return acts
 
         if room.get("special_kind") == "stairs":
@@ -1461,19 +1480,7 @@ class RunEngine:
         for e in room.get("exits") or []:
             acts.append({"id": "move", "label": e["label"], "to": e["to"], "kind": "move"})
 
-        for e in st["inventory"]:
-            kind = self.cfg.item_kind(e["id"])
-            if kind == "consumable":
-                acts.append({
-                    "id": "use", "label": f"用{self.cfg.item(e['id'])['name']}",
-                    "item": e["id"], "kind": "ghost",
-                })
-            elif kind in ("weapon", "armor"):
-                acts.append({
-                    "id": "equip", "label": f"换上{self.cfg.item(e['id'])['name']}",
-                    "item": e["id"], "kind": "ghost",
-                })
-
+        # 同上：物品操作交给「随身」面板，命令区只保留本回合的决策
         acts.append({"id": "status", "label": "查看状态", "kind": "ghost"})
         acts.append({"id": "give_up", "label": "放弃这一局", "kind": "ghost"})
         return acts

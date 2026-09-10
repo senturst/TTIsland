@@ -97,7 +97,8 @@ body::after {
   position: relative; z-index: 1;
   height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
+  /* HUD / 主文本(撑满) / 敌人 / 随身物品 / 命令区 */
+  grid-template-rows: auto 1fr auto auto auto;
   max-width: 900px;
   margin: 0 auto;
   padding: env(safe-area-inset-top) 0 0;
@@ -212,6 +213,56 @@ body::after {
 }
 .enemy .hp { color: var(--text-dim); }
 .enemy.boss { border-color: var(--danger); color: var(--danger); }
+
+/* ============================ 随身物品 ============================ */
+.pack {
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: .4rem .9rem;
+  display: flex;
+  align-items: flex-start;
+  gap: .6rem;
+}
+.pack-label {
+  color: var(--text-faint);
+  font-size: .72rem;
+  letter-spacing: .14em;
+  white-space: nowrap;
+  padding-top: .1rem;
+}
+.pack-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+}
+
+/* 可交互的（消耗品 / 可换装备） */
+.pack-item {
+  font-family: var(--mono);
+  font-size: .74rem;
+  display: inline-flex;
+  align-items: center;
+  gap: .22rem;
+  padding: .1rem .42rem;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.pack-item.act { cursor: pointer; color: var(--text); }
+.pack-item.act:hover { border-color: var(--text-faint); color: var(--phosphor); background: #1a2422; }
+
+/* 不可交互的（纪念品 / 材料 / 弹药）—— 弱化，但仍要看得见 */
+.pack-item.inert { opacity: .62; border-style: dashed; }
+
+/* 分类色：纪念品是计分物件，给一点琥珀色提示它的价值 */
+.pack-item.trinket { color: var(--amber); opacity: .82; border-color: rgba(201,162,39,.28); }
+.pack-item.weapon-held { border-color: rgba(127,224,138,.3); color: var(--phosphor); }
+.pack-item .qty { color: var(--text-faint); }
+.pack-item .wear { color: #a06a55; font-size: .68rem; }
+
+.pack-empty { color: var(--text-faint); font-size: .74rem; }
 
 /* ============================ 命令区 ============================ */
 .cmd { border-top: 1px solid var(--line); background: var(--panel); padding: .55rem .9rem .7rem; }
