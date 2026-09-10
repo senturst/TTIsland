@@ -36,6 +36,23 @@ python scripts/restart.py --stop   # 停止
 
 ---
 
+## 推送到 GitHub
+
+```bash
+python scripts/push_github.py --check   # 先验权限，比推失败再排查快
+python scripts/push_github.py          # 推送当前分支
+```
+
+token 放在 `.env` 的 `GITHUB_TOKEN=`（该文件已被 gitignore），
+脚本只在本次推送时拼接 URL，不会把凭据写进 `.git/config`，输出里也会屏蔽它。
+
+> **403 Permission denied 的坑**：fine-grained token 创建时默认是
+> `Public repositories (read-only)`——即使仓库是你自己的，push 也会被拒。
+> 需要改成 `Only select repositories → 勾选本仓库` +
+> `Contents: Read and write`。或直接用 classic token 勾 `repo` 范围。
+
+---
+
 ## 玩法要点
 
 | 系统 | 说明 |
