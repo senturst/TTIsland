@@ -57,9 +57,12 @@ def mask(text: str, token: str) -> str:
     return text.replace(token, "***") if token else text
 
 
-def api(path: str, token: str) -> tuple[int, dict]:
+def api(path: str, token: str, method: str = "GET", body: dict | None = None) -> tuple[int, dict]:
+    data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
         "https://api.github.com" + path,
+        data=data,
+        method=method,
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
@@ -99,36 +102,61 @@ def preflight(token: str) -> bool:
     perm = repo.get("permissions") or {}
     print(f"  ✓ 仓库: {repo.get('full_name')}（{'私有' if repo.get('private') else '公开'}）")
     print(f"    默认分支: {repo.get('default_branch')}")
+
+    # 仓库为空时没有 main ref，返回 409 —— 这是正常情况，不是错误
+    st_ref, _ = api(f"/repos/{REPO}/git/ref/heads/{repo.get('default_branch')}", token)
+    if st_ref == 409:
+        print("    仓库当前为空（尚无任何提交）")
+
+    # 注意：/repos 返回的 permissions 反映的是**账号**对该仓库的权限，
+    # 而不是这个 token 被授予的权限。许多 fine-grained token 在这里显示
+    # push=true，实际 push 仍然 403 —— 所以这里只作参考，真正的判据是能否推送。
+    print(f"    账号权限: push={perm.get('push')}（注意：这是账号权限，不等于 token 权限）")
     if not perm.get("push"):
         print("  ✗ 该账号对此仓库没有写权限")
         return False
 
-    # /user/installations 对 fine-grained token 是很好的权限探针：
-    # 权限不足时返回 403，而这通常正是 git push 报 403 的同一个原因。
-    st, inst = api("/user/installations", token)
-    if st == 403:
-        print("  ✗ token 未覆盖该仓库的写权限（/user/installations 返回 403）")
+    # 精确探针：创建一个 dangling blob（只写对象、不建引用，不可见且会被回收）。
+    # 它需要 Contents:write，是判断 token 是否真的有写权限的可靠手段——
+    # /repos 返回的 permissions 反映的是账号权限，会给出误导性的 push=true。
+    st_blob, blob = api(f"/repos/{REPO}/git/blobs", token, "POST",
+                        {"content": "cHJvYmU=", "encoding": "base64"})
+    if st_blob in (201, 409):
+        # 201 = 写入成功；409 = 仓库为空、但权限已通过校验
+        print("  ✓ Contents:write 已生效")
+        return True
+    if st_blob == 403:
+        msg = (blob.get("message") or "").lower()
+        print("  ✗ token 仍是只读的")
+        if "not accessible" in msg:
+            print("    （Resource not accessible by personal access token）")
         print_perm_help()
         return False
 
-    print("  ✓ 权限检查通过")
+    print(f"  ? 探针返回 {st_blob}，无法判定，将继续尝试推送")
     return True
 
 
 def print_perm_help() -> None:
     print(
-        "\n  token 缺少写权限，两种改法（任选其一）：\n"
-        "\n  【A】改现有 fine-grained token（推荐）\n"
+        "\n  【最常见的原因】只改了 Permissions，但没改上面的 Repository access。\n"
+        "  fine-grained token 创建时默认是 \"Public repositories (read-only)\"，\n"
+        "  这个模式下 Permissions 区**根本不生效**——看起来改了，实际还是只读。\n"
+        "\n  【A】修好现有 fine-grained token（token 值不变）\n"
         "       https://github.com/settings/personal-access-tokens\n"
-        "       编辑该 token →\n"
-        "         Repository access: Only select repositories → 勾选 TTIsland\n"
-        "         Permissions → Repository permissions →\n"
-        "             Contents ............ Read and write   ← 关键\n"
-        "             Metadata ............ Read-only（自动勾选）\n"
-        "       保存后 token 值不变，可直接重新推送。\n"
-        "\n  【B】改用 classic token（更省事）\n"
+        "       点开该 token，从上往下检查两处：\n"
+        "         1. Repository access（在页面上半部分，关键！）\n"
+        "              选 Only select repositories → 勾上 TTIsland\n"
+        "              或选 All repositories\n"
+        "            ← 若这里还是 \"Public repositories (read-only)\"，下面改了也没用\n"
+        "         2. Permissions → Repository permissions →\n"
+        "              Contents ......... Read and write   ← 必须显式改这一项\n"
+        "              Metadata ......... Read-only（勾了 Contents 后自动带出）\n"
+        "       最后点页面底部的 Save。改完 token 值不变，直接重新推送。\n"
+        "\n  【B】改用 classic token（更省事，推荐给不想折腾的）\n"
         "       https://github.com/settings/tokens/new\n"
-        "       勾选 repo 范围即可。\n"
+        "       勾选 repo 范围即可，没有 Repository access 这层坑。\n"
+        "       生成后把新 token 填进 .env 的 GITHUB_TOKEN= 再跑本脚本。\n"
     )
 
 
