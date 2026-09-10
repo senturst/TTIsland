@@ -1,0 +1,122 @@
+# ============================================================================
+# 五层主题
+# 每层靠"唯一机制"区分，而不是把数值线性放大。
+# 数值只有小幅增长，改变的是玩家的决策结构。
+#
+# hooks 由 core/level_rules.py 消费：
+#   on_enter_level  —— 进入该层时执行一次
+#   before_room     —— 每进入一个房间前
+#   on_turn         —— 战斗每回合
+#   modifier        —— 常驻修正
+# ============================================================================
+
+levels:
+
+  1:
+    id: 1
+    name: 废弃街区
+    icon: "🏙️"
+    subtitle: 地表 · 日光尚在
+    brief: 灾难刚过去不久。阳光还能照到街面，物资也还没被搜干净。
+    mechanism: 日光
+    mechanism_desc: 视野良好，搜刮效率 +50%。这是你囤积物资的最后机会。
+    entry_text: 你从藏身的地下室爬出来。街上很安静，安静得过分。
+    exit_text: 你找到一处通往地下的检修井。往下走，光线开始消失。
+    modifiers:
+      loot_rolls_mult: 1.5
+    on_enter_level:
+      infection_decay: 0
+    zombie_density: 0.96
+    # 层主题专属：无
+    hooks: []
+
+  2:
+    id: 2
+    name: 地下车库
+    icon: "🅿️"
+    subtitle: 负一层 · 断电
+    brief: 应急灯早就没电了。你的手电是唯一光源，而电池不会自己长出来。
+    mechanism: 手电电量
+    mechanism_desc: 电量初始 100。每探索一房 −8，战斗每回合 −2。归零后命中 −25、遭遇率 ×1.5、无法搜刮。
+    entry_text: 井盖在你身后合上。黑暗像水一样漫过来，你拧亮了手电。
+    exit_text: 通风管道的另一头传来消毒水的味道。是医院。
+    modifiers:
+      flashlight_enabled: true
+      flashlight_start: 100
+      flashlight_cost_per_room: 8
+      flashlight_cost_per_turn: 2
+      flashlight_dead_acc_penalty: -25
+      flashlight_dead_encounter_mult: 1.5
+      flashlight_dead_no_search: true
+    on_enter_level:
+      flashlight: 100
+    zombie_density: 0.97
+    hooks: [flashlight_drain]
+
+  3:
+    id: 3
+    name: 中心医院
+    icon: "🏥"
+    subtitle: 三层 · 病毒培养区
+    brief: 这里曾是最后一个还在运转的地方。也正因如此，这里的空气最脏。
+    mechanism: 高危污染区
+    mechanism_desc: 30% 的房间是高危区，进入 +8 感染，但医疗掉落 ×3。要不要赌，取决于你的抗生素还剩几支。
+    entry_text: 走廊两侧堆着来不及运走的尸袋。墙上的指示牌还亮着一点微光。
+    exit_text: 你从医院后门出来，正对着商场的卸货区。
+    modifiers:
+      hazmat_room_chance: 0.30
+      hazmat_infection: 8
+      hazmat_medical_bonus: 3
+    on_enter_level: {}
+    zombie_density: 0.88
+    hooks: [hazmat_zone]
+
+  4:
+    id: 4
+    name: 万达商场
+    icon: "🏬"
+    subtitle: 二层 · 警报系统
+    brief: 这里的警报在混乱中被触发过。它没停，也永远不会停。
+    mechanism: 警报系统
+    mechanism_desc: 噪音基线 5 且自然衰减减半。钢卷帘门可锁住一个房间躲避尸潮（消耗撬棍耐久）。战利品品质 +1 档。
+    entry_text: 刺耳的警报声从天花板传来，节奏很稳定，像心跳。
+    exit_text: 消防通道的尽头是天台。你在很远的地方听见了螺旋桨的声音。
+    modifiers:
+      noise_floor: 3
+      noise_decay_mult: 0.5
+      loot_quality_bonus: 1
+      lockable_rooms: true
+    on_enter_level:
+      noise: 5
+    zombie_density: 0.7
+    hooks: [alarm_system, lockable_room]
+
+  5:
+    id: 5
+    name: 天台
+    icon: "🚁"
+    subtitle: 顶层 · 撤离点
+    brief: 直升机不会等你第二次。到了这一层，别再翻箱子了。
+    mechanism: 撤离倒计时
+    mechanism_desc: 30 回合内必须抵达撤离点。倒计时归零则直升机离开。暴君 T-03 守在撤离点——可以打掉它拿额外分，也可以用噪音把它引开绕过去。直奔撤离点来得及，沿途搜刮就来不及了。
+    entry_text: 推开天台的门，风很大。远处的探照灯扫过来，你看见直升机的轮廓。
+    exit_text: ""
+    modifiers:
+      evac_countdown: 42
+      boss_room: true
+    on_enter_level:
+      evac_countdown: 42
+    zombie_density: 0.69
+    hooks: [evac_countdown, boss]
+
+boss:
+  id: tyrant_t03
+  name: 暴君 T-03
+  room_name: 撤离点
+  guards_evac: true
+  # 制造噪音引开：噪音 ≥ threshold 时 Boss 离开撤离点 lure_turns 回合
+  lure:
+    noise_threshold: 9
+    lure_turns: 3
+  encounter_text: 它站在停机坪中央，像是在等什么。或者说，像是在守什么。
+  kill_text: 庞大的身躯终于倒下。你跨过它，走向直升机。

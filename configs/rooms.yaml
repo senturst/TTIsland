@@ -1,0 +1,139 @@
+# ============================================================================
+# 房间模板
+# 结构、权重、数值全部写死；atmosphere_prompt 指向提示词文件名，描述由 AI 生成
+#
+# combat.enemy_bonus  —— 在遭遇表 count 基础上额外加几只
+# loot.tables         —— 引用 balance.yaml 的 loot.category_tables 键
+# loot.rolls          —— 掉几次
+# special 房间由 mapgen 强制插入，不参与权重抽取（stairs 每层 1 个）
+# ============================================================================
+
+templates:
+
+  combat:
+    - id: street_ambush
+      name: 街道伏击点
+      level_min: 1
+      level_max: 2
+      enemy_bonus: 0
+      vibe: 被遗弃的街道，翻倒的车辆和干涸的血迹
+
+    - id: parking_garage
+      name: 地下车库
+      level_min: 2
+      level_max: 4
+      enemy_bonus: 1
+      light_cost: 2
+      vibe: 漆黑的地下车库，只有手电光能照到的一小圈
+
+    - id: hospital_ward
+      name: 住院病房
+      level_min: 3
+      level_max: 5
+      enemy_bonus: 1
+      infection_on_enter: [2, 5]
+      vibe: 堆着尸袋的病房，空气里全是消毒水和腐臭
+
+    - id: mall_corridor
+      name: 商场走廊
+      level_min: 4
+      level_max: 5
+      enemy_bonus: 1
+      noise_on_enter: 1
+      vibe: 警报长鸣的商场走廊，破碎的橱窗和散落的商品
+
+    - id: rooftop_deck
+      name: 天台平台
+      level_min: 5
+      level_max: 5
+      enemy_bonus: 0
+      vibe: 空旷的天台，风很大，远处有螺旋桨的声音
+
+  loot:
+    - id: pharmacy
+      name: 药房
+      tables: [medical]
+      rolls: [1, 2]
+      pry_required: false
+      vibe: 被翻得一片狼藉的药房，货架倒在地上
+
+    - id: gun_store
+      name: 枪店
+      tables: [ammo, weapons]
+      rolls: [1, 2]
+      pry_required: true
+      noise_on_pry: 2
+      vibe: 枪店的柜台还在，玻璃展柜碎了一地
+
+    - id: supermarket
+      name: 超市
+      tables: [food]
+      rolls: [1, 3]
+      vibe: 空荡荡的超市，货架上只剩过期食品
+
+    - id: wrecked_car
+      name: 废弃车辆
+      tables: [material, ammo]
+      rolls: [1, 1]
+      pry_required: true
+      noise_on_pry: 2
+      vibe: 停在路边的废弃车辆，车门半开着
+
+    - id: locker_room
+      name: 更衣室
+      tables: [trinket, medical]
+      rolls: [1, 1]
+      vibe: 更衣室，储物柜大多被撬开了
+
+  empty:
+    - id: quiet_hall
+      name: 空旷大厅
+      vibe: 空旷的大厅，回声很重
+    - id: broken_stairs
+      name: 坍塌的楼梯间
+      vibe: 坍塌的楼梯间，水泥块堵住了去路
+    - id: office
+      name: 办公室
+      vibe: 无人办公区，显示器还亮着屏保
+
+  event:
+    - id: event_anchor
+      name: 事件点
+      vibe: 一处安静的角落，但安静得让人不安
+
+  # 墓碑房。P4 会替换成真正的玩家墓碑注入；
+  # 首批先用「无名遗骸」占位，保证空服务器时这个房型也有内容。
+  grave:
+    - id: unknown_remains
+      name: 无名遗骸
+      vibe: 有人在这里停下过，然后就再也没起来
+
+  special:
+    - id: stairs_down
+      name: 下行通道
+      kind: stairs
+      vibe: 一道向下的开口，里面黑得看不见底
+    - id: campfire
+      name: 篝火
+      kind: campfire
+      heal: 6
+      infection: -10
+      stamina: 10
+      once_per_level: true
+      ambush_chance: 0.25
+      vibe: 有人在角落生过火，灰烬还是温的
+    - id: survivor_npc
+      name: 幸存者
+      kind: npc
+      hostile_if_infection_ge: 75
+      trade: true
+      vibe: 有活人的气息，对方也在打量你
+
+# 锁门躲避尸潮（第 4 层商场机制）
+lockable_room:
+  id: shutter_room
+  name: 卷帘门仓库
+  levels: [4]
+  duration: 3          # 躲避回合数
+  pry_cost: 5          # 消耗撬棍耐久
+  noise_reduction: 4

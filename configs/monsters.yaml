@@ -1,0 +1,150 @@
+# ============================================================================
+# 怪物表
+# 全部数值写死，只有 flavor_short 由 AI 生成（见 ai_fields）
+#
+# 字段：
+#   archetype  —— 行为原型，决定 AI 行为分支（core/combat.py 消费）
+#                shambler 迟钝直冲 / rusher 高速突进 / grabber 抓握减命中
+#                spitter 远程喷吐 / brute 高血高伤 / boss 技能循环
+#   bite_chance / bite_infection —— 撕咬触发率与感染增量
+#   on_death   —— 死亡特效（肿尸爆炸）
+#   on_hit     —— 命中特效（尖啸者加噪音）
+#   ai_fields  —— 声明哪些字段交给 AI 生成
+# ============================================================================
+
+ai_fields: [flavor_short]
+
+templates:
+  base: &base
+    hp: 12
+    dmg: [3, 5]
+    acc: 55
+    eva: 5
+    crit: 0.02
+    armor: 0
+    speed: 5
+    archetype: shambler
+    bite_chance: 0.25
+    bite_infection: [3, 6]
+    xp: 10
+    score: 8
+
+monsters:
+  - id: walker
+    name: 行尸
+    icon: "🧟"
+    <<: *base
+    desc: 最常见的感染者。动作迟缓，但成群时依然是死因。
+
+  - id: runner
+    name: 奔跑者
+    icon: "🏃"
+    <<: *base
+    hp: 10
+    dmg: [2, 4]
+    eva: 15
+    speed: 9
+    archetype: rusher
+    desc: 肌肉尚未完全僵死，冲刺速度远超常人。
+
+  - id: bloater
+    name: 肿尸
+    icon: "💥"
+    <<: *base
+    hp: 22
+    dmg: [3, 5]
+    acc: 50
+    eva: 0
+    speed: 3
+    archetype: brute
+    bite_chance: 0.15
+    on_death:
+      explode:
+        dmg: [4, 8]
+        infection: [8, 15]
+        noise: 3
+    desc: 体内充满腐败气体，死时会炸开一团毒雾。
+
+  - id: screamer
+    name: 尖啸者
+    icon: "📢"
+    <<: *base
+    hp: 14
+    dmg: [1, 3]
+    acc: 55
+    speed: 6
+    on_hit:
+      noise_add: 3
+    desc: 它的叫声会把方圆百米的东西全引过来。
+
+  - id: lurker
+    name: 潜伏者
+    icon: "👤"
+    <<: *base
+    hp: 16
+    dmg: [4, 6]
+    acc: 68
+    eva: 10
+    speed: 7
+    ambush: true
+    archetype: grabber
+    desc: 不发出任何声音，等你走到最近的距离才动手。
+
+  - id: ghoul
+    name: 食尸鬼
+    icon: "🧟‍♂️"
+    <<: *base
+    hp: 20
+    dmg: [4, 6]
+    acc: 62
+    speed: 7
+    bite_chance: 0.40
+    bite_infection: [6, 10]
+    desc: 以尸体为食的变异体，攻击性极强。守着尸堆不愿离开。
+
+  - id: tyrant_t03
+    name: 暴君 T-03
+    icon: "👹"
+    <<: *base
+    hp: 65
+    dmg: [6, 9]
+    acc: 75
+    eva: 5
+    armor: 2
+    speed: 6
+    archetype: boss
+    boss: true
+    score: 150
+    abilities:
+      - id: charge
+        name: 冲撞
+        cooldown: 4
+        dmg: [9, 13]
+        noise: 5
+    desc: 实验体编号 T-03。它守在撤离点，像是被命令过。
+
+# 每层遭遇表
+#   count   —— 单次遭遇的敌人数量区间
+#   weights —— 怪物权重（ anorexia 高层引入更危险的怪）
+encounter_tables:
+  per_level:
+    1:
+      count: [1, 3]
+      weights: {walker: 85, runner: 15}
+    2:
+      count: [1, 3]
+      weights: {walker: 80, runner: 20}
+    3:
+      count: [2, 3]
+      weights: {walker: 60, runner: 25, bloater: 15}
+    4:
+      count: [2, 3]
+      weights: {walker: 45, runner: 30, bloater: 15, screamer: 10}
+    5:
+      count: [2, 3]
+      weights: {walker: 35, runner: 30, lurker: 20, bloater: 15}
+
+# 尸潮追加的追击者
+horde:
+  monster: runner
+  count: [3, 6]

@@ -1,0 +1,195 @@
+# ============================================================================
+# 物品表
+# 全部数值写死，只有 desc_ai=true 的条目其描述文本由 AI 生成
+#
+# 武器字段：
+#   dmg        —— 基础伤害区间（尚未算力量与护甲）
+#   acc_mod    —— 命中修正，直接加进命中公式
+#   noise      —— 噪音来源键，null 表示近战不产生噪音
+#   ammo_per_shot / ammo_type —— 枪械消耗
+#   durability —— 近战武器可用次数，归零后伤害 ×broken_weapon_mult
+# ============================================================================
+
+weapons:
+  - id: crowbar
+    name: 撬棍
+    icon: "🔧"
+    kind: melee
+    dmg: [6, 10]
+    acc_mod: 0
+    crit: 0.05
+    noise: 0
+    durability: 20
+    pry: true
+    weight: 30
+    tier: 1
+    desc_ai: true
+
+  - id: fire_axe
+    name: 消防斧
+    icon: "🪓"
+    kind: melee
+    dmg: [7, 12]
+    acc_mod: -5
+    crit: 0.10
+    noise: 0
+    durability: 25
+    pry: true
+    weight: 10
+    tier: 3
+    desc_ai: true
+
+  - id: machete
+    name: 砍刀
+    icon: "🔪"
+    kind: melee
+    dmg: [5, 9]
+    acc_mod: +5
+    crit: 0.15
+    noise: 0
+    durability: 18
+    weight: 14
+    tier: 1
+    desc_ai: true
+
+  - id: pistol_m9
+    name: M9 手枪
+    icon: "🔫"
+    kind: ranged
+    dmg: [8, 12]
+    acc_mod: +10
+    crit: 0.10
+    noise_key: gunshot
+    ammo_type: ammo_pistol
+    ammo_per_shot: 1
+    weight: 12
+    tier: 2
+    desc_ai: true
+
+  - id: shotgun
+    name: 霰弹枪
+    icon: "🔫"
+    kind: ranged
+    dmg: [16, 24]
+    acc_mod: -5
+    crit: 0.15
+    noise_key: gunshot
+    ammo_type: ammo_shotgun
+    ammo_per_shot: 2
+    weight: 7
+    tier: 3
+    desc_ai: true
+
+  - id: silenced_smg
+    name: 消音冲锋枪
+    icon: "🔫"
+    kind: ranged
+    dmg: [6, 9]
+    acc_mod: +5
+    crit: 0.12
+    noise_key: silenced
+    ammo_type: ammo_smg
+    ammo_per_shot: 3
+    weight: 5
+    tier: 2
+    desc_ai: true
+
+ammo:
+  - id: ammo_pistol
+    name: 手枪弹
+    icon: "🔩"
+    qty: [3, 6]
+    weight: 35
+  - id: ammo_shotgun
+    name: 霰弹
+    icon: "🔩"
+    qty: [2, 4]
+    weight: 20
+  - id: ammo_smg
+    name: 冲锋枪弹
+    icon: "🔩"
+    qty: [4, 8]
+    weight: 25
+
+consumables:
+  - id: bandage
+    name: 绷带
+    icon: "🩹"
+    heal: [8, 13]
+    infection: -5
+    weight: 25
+    desc_ai: false
+  - id: antibiotic
+    name: 抗生素
+    icon: "💊"
+    infection: -25
+    weight: 6
+    desc_ai: false
+    # 稀有：只在医疗掉落表出现
+    rare: true
+  - id: canned
+    name: 罐头
+    icon: "🥫"
+    heal_stamina: 8
+    infection: -2
+    weight: 25
+  - id: clean_water
+    name: 净水
+    icon: "💧"
+    infection: -5
+    weight: 18
+  - id: vodka
+    name: 伏特加
+    icon: "🍺"
+    buff: {acc: +10, taken_dmg: -2, turns: 5}
+    infection: +3
+    weight: 8
+    desc_ai: true
+  - id: battery
+    name: 电池
+    icon: "🔋"
+    flashlight: +30
+    weight: 10
+
+materials:
+  - id: scrap
+    name: 废铁
+    icon: "🧱"
+    weight: 10
+
+armor:
+  - id: leather_jacket
+    name: 皮夹克
+    icon: "🧥"
+    armor: 2
+    eva: -5
+    weight: 12
+    tier: 1
+  - id: riot_gear
+    name: 防暴服
+    icon: "🦺"
+    armor: 5
+    eva: -15
+    noise_mod: +1
+    weight: 5
+    tier: 2
+
+trinkets:
+  - id: wedding_ring
+    name: 婚戒
+    icon: "💍"
+    score: 15
+    desc_ai: true
+  - id: dog_tag
+    name: 身份牌
+    icon: "🪪"
+    score: 15
+    desc_ai: true
+  - id: photo
+    name: 全家福
+    icon: "📷"
+    score: 15
+    desc_ai: true
+
+# 消耗品不可作为遗物继承
+legacy_exclude_kinds: [consumables, ammo]

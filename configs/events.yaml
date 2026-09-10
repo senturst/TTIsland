@@ -1,0 +1,160 @@
+# ============================================================================
+# 随机事件
+# 结构、选项、概率、数值全部写死。{ai_desc} 是唯一的 AI 插槽（房间氛围文本）。
+#
+# outcomes 为加权结果表，p 之和应为 1.0（加载时校验）
+#   loot      —— 按掉落表给物品
+#   infection —— 感染度增量
+#   heal      —— 回血
+#   spawn     —— 生成怪物
+#   noise     —— 噪音增量
+#   text      —— 结果描述
+# ============================================================================
+
+events:
+
+  - id: blood_pool
+    weight: 20
+    levels: [1, 5]
+    text: "{ai_desc}。地上有一摊还没凝固的血。"
+    choices:
+      - id: search
+        label: 翻找尸体
+        noise: 1
+        outcomes:
+          - {p: 0.45, loot_category: ammo, text: 死者口袋里还有几发子弹。}
+          - {p: 0.25, infection: [2, 4], text: 你把沾血的手在裤子上擦了擦，但已经晚了。}
+          - {p: 0.30, spawn: walker, text: 尸体的手突然抓住了你的手腕。}
+      - id: avoid
+        label: 绕开
+        outcomes:
+          - {p: 1.0, text: 你贴着墙走了过去。}
+
+  - id: locked_door
+    weight: 15
+    levels: [1, 5]
+    text: "{ai_desc}。一扇锁死的门，门缝里透出一点光。"
+    choices:
+      - id: pry
+        label: 撬开
+        noise: 2
+        require_pry: true
+        outcomes:
+          - {p: 0.60, loot_category: medical, text: 门后是个小储藏间，药品架还没被搬空。}
+          - {p: 0.25, loot_category: ammo, text: 门后是个值班室，桌上散落着弹匣。}
+          - {p: 0.15, spawn: lurker, text: 门开的瞬间，有什么东西扑了出来。}
+      - id: knock
+        label: 敲门
+        noise: 3
+        outcomes:
+          - {p: 0.50, spawn: walker, count: 2, text: 门里传来拖行的脚步声。然后门开了。}
+          - {p: 0.30, text: 没有任何回应。}
+          - {p: 0.20, loot_category: food, text: 一个吓得发抖的幸存者隔着门递给你一包东西，然后就没声了。}
+      - id: leave
+        label: 离开
+        outcomes:
+          - {p: 1.0, text: 你决定不冒险。}
+
+  - id: broken_vending
+    weight: 12
+    levels: [1, 4]
+    text: "{ai_desc}。一台自动售货机，玻璃碎了一地。"
+    choices:
+      - id: reach
+        label: 伸手进去掏
+        noise: 1
+        outcomes:
+          - {p: 0.50, loot_category: food, text: 你摸到几包还没过期的压缩饼干。}
+          - {p: 0.30, cut: [2, 4], loot_category: food, text: 食物拿到了，但玻璃划开了你的手。}
+          - {p: 0.20, noise: 2, spawn: runner, text: 机器被你推得撞在墙上，响声引来了东西。}
+      - id: leave
+        label: 不管它
+        outcomes:
+          - {p: 1.0, text: 你咽了口唾沫，走开了。}
+
+  - id: radio_signal
+    weight: 10
+    levels: [2, 5]
+    text: "{ai_desc}。一台还在工作的收音机，里面传出断断续续的人声。"
+    choices:
+      - id: listen
+        label: 听
+        outcomes:
+          - {p: 0.40, heal: [3, 6], text: 是段旧广播。不知为什么，你稍微放松了一点。}
+          - {p: 0.35, info: true, text: 播报里提到了撤离点的位置。你记住了。}
+          - {p: 0.25, spawn: walker, text: 声音停了。取而代之的是另一种声音。}
+      - id: smash
+        label: 砸掉
+        noise: 3
+        outcomes:
+          - {p: 1.0, text: 那声音让你心烦。你砸了它，然后立刻后悔了。}
+
+  - id: survivor_body
+    weight: 14
+    levels: [1, 5]
+    text: "{ai_desc}。一具还很新的尸体，装备还在。"
+    choices:
+      - id: loot
+        label: 拿走装备
+        noise: 2
+        outcomes:
+          - {p: 0.55, loot_category: ammo, text: 你解下他的弹匣袋。他的手还是温的。}
+          - {p: 0.25, loot_category: medical, text: 他的急救包里还有东西。}
+          - {p: 0.20, spawn: ghoul, text: 你伸手的时候，另一只手从尸体下面伸了出来。}
+      - id: bury
+        label: 埋了
+        outcomes:
+          - {p: 1.0, infection: -5, humanity: 5, text: 你用碎石盖住了他。这花不了多少时间。}
+      - id: leave
+        label: 离开
+        outcomes:
+          - {p: 1.0, text: 你移开视线。}
+
+  - id: antibiotic_cache
+    weight: 8
+    levels: [3, 5]
+    text: "{ai_desc}。一个被撬过的医药箱，里面还剩点东西。"
+    choices:
+      - id: take
+        label: 拿
+        outcomes:
+          - {p: 0.70, item: antibiotic, text: 居然还有一支抗生素。}
+          - {p: 0.30, item: bandage, text: 只剩几卷绷带了。}
+      - id: leave
+        label: 留给更需要的人
+        outcomes:
+          - {p: 1.0, humanity: 5, text: 你合上了箱子。}
+
+  - id: glass_field
+    weight: 10
+    levels: [1, 3]
+    text: "{ai_desc}。地面铺满了碎玻璃。"
+    choices:
+      - id: careful
+        label: 小心通过
+        outcomes:
+          - {p: 0.80, text: 你踩着边缘慢慢挪了过去。}
+          - {p: 0.20, cut: [1, 3], text: 还是踩响了一片。}
+      - id: sprint
+        label: 冲过去
+        noise: 3
+        outcomes:
+          - {p: 0.60, text: 你几步冲了过去，身后是一串碎响。}
+          - {p: 0.40, cut: [2, 5], noise: 2, text: 你滑倒了，玻璃扎进手掌。}
+
+  - id: survivor_camp
+    weight: 8
+    levels: [1, 4]
+    text: "{ai_desc}。有人在这里住过，火堆还是温的。"
+    choices:
+      - id: rest
+        label: 休息一会
+        outcomes:
+          - {p: 0.65, heal: [5, 9], infection: -10, text: 你靠着墙睡了二十分钟。这段时间里什么都没发生。}
+          - {p: 0.35, spawn: walker, count: 2, text: 你刚合上眼就听见了脚步声。}
+      - id: scavenge
+        label: 翻他们的物资
+        noise: 2
+        outcomes:
+          - {p: 0.60, loot_category: ammo, text: 他们在石头下面藏了个盒子。}
+          - {p: 0.40, spawn: walker, count: 2, text: 他们回来了，而且不太高兴。}

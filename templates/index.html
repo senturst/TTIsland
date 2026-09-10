@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>孤岛残响 · 末世文字 Roguelike</title>
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+
+<div id="boot" class="boot">
+  <div class="boot-inner">
+    <div class="boot-title">孤岛残响</div>
+    <div class="boot-sub">ESTABLISHING LINK…</div>
+    <div class="boot-status" id="boot-status">正在接入应急频段</div>
+  </div>
+</div>
+
+<main id="app" class="app hidden" aria-live="polite">
+
+  <!-- ============ HUD ============ -->
+  <header class="hud" id="hud">
+    <div class="hud-row">
+      <div class="gauge" id="g-hp">
+        <span class="gauge-label">体力</span>
+        <span class="gauge-bar" id="hp-bar"></span>
+        <span class="gauge-num" id="hp-num">--</span>
+      </div>
+      <div class="gauge" id="g-inf">
+        <span class="gauge-label">感染</span>
+        <span class="gauge-bar" id="inf-bar"></span>
+        <span class="gauge-num" id="inf-num">--</span>
+      </div>
+    </div>
+    <div class="hud-row hud-row-meta">
+      <span class="chip" id="c-depth">-- 层</span>
+      <span class="chip" id="c-room">--</span>
+      <span class="chip" id="c-weapon">空手</span>
+      <span class="chip" id="c-ammo" title="弹药">--</span>
+      <span class="chip" id="c-noise" title="噪音">噪音 --</span>
+      <span class="chip hidden" id="c-flash" title="手电电量">电 --</span>
+      <span class="chip hidden danger" id="c-evac" title="撤离倒计时">--</span>
+      <span class="chip hidden" id="c-talent" title="本局天赋"></span>
+      <span class="chip ghost" id="c-score">0 分</span>
+    </div>
+  </header>
+
+  <!-- ============ 主文本区 ============ -->
+  <section class="term" id="term" tabindex="0">
+    <div class="term-lines" id="term-lines"></div>
+  </section>
+
+  <!-- ============ 敌人状态 ============ -->
+  <section class="enemies hidden" id="enemies"></section>
+
+  <!-- ============ 命令区 ============ -->
+  <footer class="cmd" id="cmd">
+    <div class="cmd-buttons" id="cmd-buttons"></div>
+    <form class="cmd-input" id="cmd-form" autocomplete="off">
+      <span class="prompt">&gt;</span>
+      <input type="text" id="cmd-text" placeholder="输入指令，或直接点上面的按钮"
+             autocomplete="off" spellcheck="false" maxlength="60">
+      <button type="submit" class="send">执行</button>
+    </form>
+  </footer>
+
+  <div class="degraded-banner hidden" id="degraded">信 号 衰 减</div>
+</main>
+
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

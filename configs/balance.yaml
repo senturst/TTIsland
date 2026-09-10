@@ -1,0 +1,192 @@
+# ============================================================================
+# 全局平衡常量
+# 这一份是数值总闸。调手感优先改这里，不要散到代码里。
+# 字段解释：
+#   hit_floor / hit_ceiling —— 命中率钳制上下限，永远不出现必中或必空
+#   dot_per_room / dot_per_turn —— 每进一房 / 每回合末固定扣血
+# ============================================================================
+
+config_version: 1
+
+player:
+  # 数值经过 scripts/sim.py 上千局模拟校准。
+  # 全程期望承伤约 200，而可用血池（初始 HP + 沿途治疗）约 120，
+  # 差额靠"逃跑、绕路、用手电省遭遇"来补——这正是玩家该动脑的地方。
+  hp: 40
+  stamina: 20
+  strength: 6
+  agility: 5
+  acc: 88
+  eva: 12
+  crit: 0.05
+  crit_mult: 1.8
+  armor: 0
+  ammo_start: 12
+  # 开局武器（必须在 items.yaml 中存在）
+  start_weapon: crowbar
+  # 开局消耗品 [item_id, 数量]
+  start_items:
+    - [bandage, 1]
+    - [canned, 1]
+
+# 下楼时回一点血。
+# 没有它，整局就是一条单向消耗的血条——前面多掉一点血，后面通过率就全线崩，
+# 每层的难度根本没法独立调（实测：前三层的密度只涨 0.06，L5 通过率就从 44% 掉到 29%）。
+# 有了层间喘息，每层才成为一个可以单独校准的单元。
+progression:
+  descend_heal_pct: 0.12    # 按最大生命的比例回复
+
+combat:
+  hit_floor: 5
+  hit_ceiling: 95
+  # 力量加成的分母：floor(STR / str_divisor) 加进伤害
+  str_divisor: 2
+  # 逃跑：base + per_agi * (玩家AGI - 敌AGI)
+  flee_base: 40
+  flee_per_agi: 5
+  flee_clamp: [10, 90]
+  # 逃跑失败时敌人免费打一次的概率
+  flee_fail_punish_chance: 1.0
+
+infection:
+  max: 100
+  bands:
+    - {min: 25, name: 低烧, hp_max_pct: -0.10, acc: -5}
+    - {min: 50, name: 溃烂, hp_max_pct: -0.25, acc: -10, dot_per_room: 1}
+    # 75+ 给增益而不是纯惩罚，让高感染成为可玩的策略位置
+    - {min: 75, name: 狂躁, acc: +10, dmg_pct: +0.20, dot_per_turn: 2, npc_hostile: true}
+    - {min: 100, name: 尸化, zombify: true}
+  # 尸变模式：选"继续"后的存活房间数与能力加成
+  zombify:
+    max_rooms: 3
+    stat_mult: 1.3
+  sources:
+    bite: [3, 6]
+    blood_pool: [2, 4]
+    raw_food: 5
+  relief:
+    antibiotic: -25
+    campfire: -10
+    clean_water: -5
+    bandage: -5
+
+noise:
+  max: 10
+  # 每移动一个房间自然衰减
+  decay_per_room: 0.5
+  sources:
+    gunshot: 4
+    silenced: 1
+    gun_kill: 3
+    melee_kill: 0
+    pry: 2
+    sprint: 2
+    glass: 1
+  horde:
+    threshold: 8
+    end: 4
+    extra_spawn: [3, 6]
+    density_mult: 2.0
+
+# 遗物继承（软 Roguelite）
+# 风险：高层拿到好装备 → 死亡继承 → 前期碾压 → 更容易活到高层 → 更好的装备。
+# 正反馈一旦跑起来，roguelike 的难度曲线就废了。三道闸封死：
+#   1. tier 上限——重火力（消防斧/霰弹枪）根本不能带走
+#   2. 传承衰减——每传一代伤害与耐久都缩水，越传越差
+#   3. 代次上限——传满 max_passes 代直接报废，任何装备都有寿命
+# 另外"单槽位"本身就是限制：新遗物会顶掉旧的，无法累积。
+legacy:
+  max_tier: 2
+  max_passes: 3
+  weapon_dmg_mult: 0.85      # 每传承一代的伤害倍率
+  durability_mult: 0.6       # 每传承一代的耐久倍率
+  armor_penalty: 1           # 每传承一代护甲值扣减
+  # 纪念品无属性，不衰减，可以一直传下去（它们是情感物件，不是数值）
+
+  # ---------- 撤离 vs 死亡：留下的东西质量不同 ----------
+  # 如果两者代价一样，最优解就变成"反正装备都要丢，不如早点死"，
+  # 难度曲线会被这个策略架空。所以：
+  #   撤离 = 把装备保养好带回家 → 耐久全满、传承次数不增加、另有津贴
+  #   死亡 = 从尸体上捡回来的  → 耐久衰减、传承次数 +1、其余装备流落进墓碑池
+  escape:
+    keep_passes: true        # 撤离不增加传承次数
+    restore_durability: true # 撤离时耐久回满
+    stipend:
+      ammo: [ammo_pistol, 6]
+      item: bandage
+
+loot:
+  # 掉落大类权重
+  category_weights:
+    ammo: 35
+    food: 24
+    medical: 15
+    material: 15
+    trinket: 10
+  ammo_per_drop: [2, 4]      # 每次弹药掉落 2-4 发 → 每层期望 6-10 发
+  category_tables:
+    ammo: [ammo_pistol, ammo_shotgun, ammo_smg]
+    food: [canned, clean_water, vodka]
+    medical: [bandage, antibiotic]
+    material: [battery, scrap]
+    trinket: [wedding_ring, dog_tag, photo]
+  # 近战武器耐久归零后伤害倍率
+  broken_weapon_mult: 0.5
+
+mapgen:
+  rooms_base: 8
+  rooms_rand: 4              # 房间数 = base + rand(0, rand)
+  main_path_ratio: 0.6       # 主干长度占比
+  branch_min: 1
+  branch_max: 2              # 每个分支挂 1-2 房（死胡同）
+  # 高层分支占比更高，探索收益随深度上升
+  branch_ratio_by_level:
+    1: 0.20
+    2: 0.25
+    3: 0.30
+    4: 0.35
+    5: 0.40
+  # 主干 / 分支上的房间类型权重
+  room_weights:
+    main:   {combat: 40, loot: 20, event: 15, empty: 15, grave: 5,  special: 5}
+    branch: {combat: 20, loot: 35, event: 15, empty: 5,  grave: 20, special: 5}
+
+# ============================================================================
+# 平衡目标
+#
+# pass_rate_by_level[L] = 「活着进入第 L 层的玩家，活着走出去」的概率。
+# 连乘即整局撤离率：0.88 × 0.76 × 0.65 × 0.55 × 0.45 ≈ 10.7%
+#
+# ## 为什么定这么低
+# 这五层是**地区 1，不是整个游戏**。设计目标是多周目循环：
+#   玩家反复刷地区 1 → 攒装备强化自身 → 去挑战后续地区。
+# 撤离本来就应该是稀缺事件（约十局一次），而不是"打完一遍就通关毕业"。
+#
+# ## 为什么第二轮仍然会翻车
+# 单局通过率只有 ~10%，意味着即使装备略有提升，方差也足以让玩家栽跟头。
+# 遗物传承每代都在衰减（见 legacy），硬性封顶 3 代——
+# 玩家能靠刷取缩短"运气不好"的概率，但永远买不到"稳过"。
+#
+# **基准不含任何外来加成**：这个目标是按"无遗物、不摸墓碑"的裸开局校准的。
+# 遗物与墓碑收益只能让玩家**逼近**目标，不应显著超过它，否则就是滚雪球。
+# ============================================================================
+targets:
+  pass_rate_by_level:
+    1: 0.88
+    2: 0.76
+    3: 0.65
+    4: 0.55
+    5: 0.45
+  tolerance: 0.06          # 超过这个偏差就认为需要回调
+  # 雪球容忍度：拿到遗物后，整局撤离率的提升不应超过这个值。
+  # 这条同时保证"第一轮通关 ≠ 第二轮稳过"。
+  max_legacy_gain: 0.05
+
+scoring:
+  per_kill: 8
+  per_level: 50
+  escape_bonus: 200
+  boss_kill_bonus: 150
+  # 分数 = 击杀分 + 深度分 + 撤离/Boss 奖励 + 剩余物资折算
+  ammo_score: 1
+  trinket_score: 15
