@@ -66,17 +66,14 @@ async function consume(data) {
   if (state.horde && !lastHorde) flashHorde();
   lastHorde = state.horde;
 
-  // 结局分支
-  if (state.pendingDecision === "legacy") {
-    appendLine(host, state.status === "escaped"
-      ? "你能带回家的一样东西（撤离带回来的，会保养得很好）："
-      : "你最后能留下的只有一样东西：", "divider");
-    // 重火力带不走，说明原因，否则玩家会以为东西被系统吞了
-    if (state.legacyBlocked?.length) {
-      appendLine(host,
-        `太重、太吵、也修不好——${state.legacyBlocked.join("、")}带不走，只能留在这里。`,
-        "sys");
-    }
+  // 结局分支。
+  // 注意：服务端已经写过"你最后能留下的只有一样东西"这类引导语，
+  // 这里不要再拼一条，否则会出现两句几乎一样的提示。
+  if (state.pendingDecision === "legacy" && state.legacyBlocked?.length) {
+    // 重火力带不走，说明原因，否则玩家会以为装备被系统吞了
+    appendLine(host,
+      `太重、太吵、也修不好——${state.legacyBlocked.join("、")}带不走，只能留在这里。`,
+      "sys");
   }
   if (state.status !== "active" && !state.pendingDecision) {
     appendLine(host, "— 本局结束 —", "divider");

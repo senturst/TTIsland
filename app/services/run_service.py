@@ -1257,7 +1257,12 @@ class RunEngine:
         st["legacy_choices"] = self._legacy_candidates()
         if st["legacy_choices"]:
             self._log("你最后能留下的只有一样东西。选一个：")
-        raise RunEnded("dead" if not st.get("zombified") else "zombified", cause)
+
+        # 状态在这里就写好，不要依赖调用方接住异常后再赋值——
+        # 那种写法只要有一处调用方忘了 catch，这一局就永远不会被判定为结束，
+        # /api/run/flee 曾经就是这么漏的。RunEnded 只用来做控制流。
+        st["status"] = "zombified" if st.get("zombified") else "dead"
+        raise RunEnded(st["status"], cause)
 
     # ==================================================================
     # 响应
@@ -1371,9 +1376,11 @@ class RunEngine:
     def _available_actions(self) -> list[dict]:
         st = self.state
         acts: list[dict] = []
-        if st["status"] != "active":
-            return acts
 
+        # 顺序很重要：**待决策必须先于"本局是否已结束"判断**。
+        # 死亡会同时把 status 置为 dead 和 pending_decision 置为 legacy，
+        # 如果先判断 status，就会返回空列表——玩家看不到遗物选项、也没有任何按钮，
+        # 整局永久卡死（这个 bug 真的发生过）。
         if st.get("pending_decision") == "talent":
             return [
                 {"id": "talent", "label": f"{t['name']}｜{t['desc']}",
@@ -1391,6 +1398,10 @@ class RunEngine:
                 {"id": "legacy", "label": f"留下：{c['name']}", "index": i, "kind": "primary"}
                 for i, c in enumerate(st.get("legacy_choices") or [])
             ] + [{"id": "legacy", "label": "什么都不留", "index": -1, "kind": "ghost"}]
+
+        # 没有待决策、且本局已结束 —— 这才是真正的"无事可做"
+        if st["status"] != "active":
+            return acts
 
         room = mapgen.current_room(st["level_map"])
         r = st["room"]

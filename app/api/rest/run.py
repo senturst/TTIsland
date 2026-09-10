@@ -222,12 +222,10 @@ async def flee(client_id: str = Depends(client_id_from)) -> Any:
     engine._out = []
     engine.state["death_cause"] = "放弃了"
     try:
-        # _die() 用异常表示"本局结束"，act() 里会捕获它。
-        # 这里也必须捕获——否则异常冒到框架层，run 永远不会被收尾，
-        # 玩家会卡在"你还有一局没结束"而无法开新局。
+        # _die() 用异常表示"本局结束"，状态已由它自己写好，这里只需吞掉异常。
         await engine._die("放弃了")
-    except RunEnded as exc:
-        engine.state["status"] = exc.status
+    except RunEnded:
+        pass
 
     await db_call(repo.runs.save, row["id"], engine.state)
     await _maybe_finalize(client_id, row["id"], engine)
