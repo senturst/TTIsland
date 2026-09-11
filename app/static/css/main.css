@@ -105,8 +105,8 @@ body::after {
   position: relative; z-index: 1;
   height: var(--app-vh, 100dvh);
   display: grid;
-  /* HUD / 主文本(撑满) / 敌人 / 随身物品 / 命令区 */
-  grid-template-rows: auto 1fr auto auto auto;
+  /* HUD / 主文本(撑满) / 敌人 / 随身物品 / 商人 / 命令区 */
+  grid-template-rows: auto 1fr auto auto auto auto;
   max-width: 900px;
   margin: 0 auto;
   /* 左右也留出安全区，避免刘海/圆角屏把内容吃掉 */
@@ -239,6 +239,10 @@ body::after {
   align-items: flex-start;
   gap: .6rem;
   min-width: 0; /* flex 子项收缩保护，防长物品名把整行撑出视口 */
+  /* 物品多时内部滚动，不把命令区挤下屏幕 */
+  max-height: 32vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .pack-label {
   color: var(--text-faint);
@@ -386,11 +390,28 @@ kbd.hot { margin-left: .35rem; }
   border-top: 1px solid var(--line);
   background: var(--panel);
   padding: .4rem .9rem .55rem;
+  /* 商品+修理+出售堆叠起来很高：面板自身限高内部滚动，
+     绝不允许把下方命令区（「离开」按钮）挤出屏幕 */
+  max-height: 45vh;
+  overflow-y: auto;
+  min-height: 0;
+  overscroll-behavior: contain; /* 滚到头不把整个页面带着弹 */
 }
 .merchant-head {
   display: flex; align-items: baseline; gap: .6rem;
   margin-bottom: .35rem;
   flex-wrap: wrap;
+  /* 面板内部滚动时标题和「离开」按钮保持可见 */
+  position: sticky; top: -.4rem;
+  background: var(--panel);
+  z-index: 2;
+  padding: .25rem 0;
+}
+.merchant-leave {
+  margin-left: auto;
+  font-size: .72rem !important;
+  padding: .2rem .55rem !important;
+  min-height: 0 !important;
 }
 .merchant-title {
   font-family: var(--mono); font-size: .85rem; letter-spacing: .1em;
@@ -431,6 +452,8 @@ kbd.hot { margin-left: .35rem; }
 }
 @media (max-width: 560px) {
   .merchant-cols { grid-template-columns: 1fr; }
+  /* 手机上三列改单列后内容很高：压低限高，保证命令区（离开/移动等）始终可见 */
+  .merchant { max-height: 42vh; }
 }
 
 /* ============ 开局命名弹窗 ============ */

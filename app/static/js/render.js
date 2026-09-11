@@ -39,7 +39,11 @@ function asciiBar(ratio, width = 12) {
 }
 
 function iconFor(id) {
-  return state.icons?.[id] || "";
+  // meta.icons 的值是 {name, icon} 对象（不是字符串）——取 .icon，
+  // 否则模板字符串里会渲染成 "[object Object] 砍刀"
+  const v = state.icons?.[id];
+  if (!v) return "";
+  return typeof v === "string" ? v : (v.icon || "");
 }
 
 function setText(id, text) {
@@ -91,7 +95,7 @@ export function renderHUD() {
   setText("stam-num", `${stam}/${stamMax}`);
 
   // 层
-  const lvlIcon = s.icons?._level || "📍";
+  const lvlIcon = iconFor("_level") || "📍";
   setHTML("c-depth", `${iconOf(lvlIcon)} 第 ${s.depth} / ${s.maxDepth} 层`);
 
   // 房间
@@ -268,7 +272,7 @@ export function renderPack(onAction) {
 
     const ic = document.createElement("span");
     ic.className = "icon";
-    ic.textContent = state.icons?.[it.id] || (
+    ic.textContent = iconFor(it.id) || (
       it.kind === "trinket" ? "📦" : it.kind === "ammo" ? "🔩" :
       it.kind === "material" ? "🧱" : "•"
     );
@@ -379,6 +383,13 @@ export function renderMerchant(onAction) {
     if (m.full_price) bits.push("⚠ 血量不过半：无折扣按原价交易，不抽血");
     else if (m.type === "plagued") bits.push("成交时你缺多少血它抽多少");
     note.textContent = bits.join(" · ");
+  }
+
+  // 「离开」常驻面板头部（sticky）：商品再多也能随时撤，绝不依赖被挤出屏幕的命令区
+  const leaveBtn = document.getElementById("merchant-leave");
+  if (leaveBtn) {
+    leaveBtn.disabled = state.busy;
+    leaveBtn.onclick = () => onAction({ id: "merchant", choice: "leave" });
   }
 
   const fullPrice = !!m.full_price;

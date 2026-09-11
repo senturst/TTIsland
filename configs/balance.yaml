@@ -139,10 +139,10 @@ legacy:
 loot:
   # 掉落大类权重
   category_weights:
-    ammo: 35
-    food: 24
-    medical: 15
-    material: 15
+    ammo: 20
+    food: 20
+    medical: 20
+    material: 22
     trinket: 10
     gear: 8
   ammo_per_drop: [2, 4]      # 每次弹药掉落 2-4 发 → 每层期望 6-10 发
