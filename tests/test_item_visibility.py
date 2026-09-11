@@ -102,6 +102,47 @@ def test_status_action_prints_full_inventory():
     asyncio.run(run())
 
 
+def test_items_carry_numeric_desc():
+    """道具必须在响应里带数值摘要（desc），玩家不用真的用一次就知道它干什么。
+
+    这是修复"道具不显示具体数值，得使用一次才知道"的核心不变量：
+    每件有数值意义的道具，其序列化结果都必须带一段人类可读的数值说明。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await RunEngine.new_run(cfg, None)
+        if eng.state.get("pending_decision") == "talent":
+            await eng.act("talent", {"index": 0})
+
+        # 开局自带武器，必须带 desc
+        w = eng._response()["state"]["weapon"]
+        assert w["desc"], f"已装备武器缺少数值摘要: {w}"
+
+        # 每类各放一件，检查 desc
+        probe = {
+            "bandage": "consumable",      # 回复 8–13 · 感染 -5
+            "leather_jacket": "armor",    # 防御 +2 · 闪避 -5
+            "crowbar": "weapon",          # 伤害 6–10 · 暴击 5% · 静音 · 耐久 20
+            "wedding_ring": "trinket",    # 计分 +15
+            "ammo_pistol": "ammo",        # 每拾 3–6
+            "scrap": "material",          # 无数值，desc 应为空串
+        }
+        for iid in probe:
+            loot.grant(cfg, eng.state, iid, 1)
+
+        inv = {e["id"]: e for e in eng._response()["state"]["inventory"]}
+        for iid, kind in probe.items():
+            assert iid in inv, f"{iid} 没出现在背包"
+            d = inv[iid]["desc"]
+            if kind == "material":
+                assert d == "", f"{iid}(材料) 不该有数值摘要，实际: {d!r}"
+            else:
+                assert d, f"{iid}({kind}) 缺少数值摘要 desc"
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     test_every_configured_item_has_icon()
     print("✓ 所有物品都有图标")

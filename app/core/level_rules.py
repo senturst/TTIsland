@@ -151,6 +151,11 @@ def loot_rolls_mult(cfg: GameConfig, state: dict) -> float:
     return float(modifiers(cfg, state["depth"]).get("loot_rolls_mult", 1.0))
 
 
+def search_extra_chance(cfg: GameConfig, state: dict) -> float:
+    """搜索续 roll 的额外基础概率（新手层更友好）。默认 0。"""
+    return float(modifiers(cfg, state["depth"]).get("search_extra_flat", 0.0))
+
+
 def medical_bonus(cfg: GameConfig, state: dict) -> int:
     """第 3 层污染房的医疗掉落倍数。"""
     return int(modifiers(cfg, state["depth"]).get("hazmat_medical_bonus", 1))

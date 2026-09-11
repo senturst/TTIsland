@@ -14,7 +14,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .api.rest import meta, player, run
+from .api.rest import admin, meta, notifications, player, run
+from .api.events import router as events_router
+from .admin_auth import PLACEHOLDER, load_admin_token
 from .config import ROOT, settings
 from .data.loader import ConfigError, get_config
 from .db import migrate
@@ -44,6 +46,13 @@ async def lifespan(app: FastAPI):
     else:
         log.info("AI 未配置，将使用内置模板文本（游戏功能不受影响）")
 
+    tok = load_admin_token()
+    if not tok or tok == PLACEHOLDER:
+        log.warning(
+            "管理后台未配置令牌：设置环境变量 ADMIN_TOKEN 或 configs/admin.yaml 的 token"
+            "（禁止使用默认弱口令），否则 /admin 无法登录。"
+        )
+
     yield
     log.info("服务关闭")
 
@@ -58,6 +67,9 @@ app = FastAPI(
 app.include_router(player.router)
 app.include_router(run.router)
 app.include_router(meta.router)
+app.include_router(notifications.router)
+app.include_router(events_router)
+app.include_router(admin.router)
 
 app.mount("/static", StaticFiles(directory=str(ROOT / "app" / "static")), name="static")
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
@@ -69,6 +81,11 @@ async def index(request: Request):
     # 写成 TemplateResponse("index.html", {...}) 会把模板名当成 request，
     # 导致 Jinja2 拿到一个 dict 当模板名，报 unhashable type: 'dict'。
     return templates.TemplateResponse(request=request, name="index.html")
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    return templates.TemplateResponse(request=request, name="admin.html")
 
 
 @app.exception_handler(ConfigError)

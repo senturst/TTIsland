@@ -108,6 +108,15 @@ templates:
       name: 无名遗骸
       vibe: 有人在这里停下过，然后就再也没起来
 
+  # 商人：用废铁修复近战武器、买卖少量基础物资。
+  # 走 mapgen 的 room_weights 生成（不是 special 房），所以正常参与权重抽取。
+  merchant:
+    - id: wandering_trader
+      name: 流浪商人
+      level_min: 1
+      level_max: 5
+      vibe: 一个裹着破毯子的身影在翻拣货物，看见你眼睛亮了一下——「废铁换命，懂？」
+
   special:
     - id: stairs_down
       name: 下行通道

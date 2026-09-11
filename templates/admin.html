@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>孤岛残响 · 管理后台</title>
+  <link rel="stylesheet" href="/static/css/admin.css" />
+</head>
+<body>
+  <!-- 登录 -->
+  <div id="login" class="login-wrap">
+    <div class="login-card">
+      <h1>管理后台</h1>
+      <p class="muted">请输入配置文件中的管理令牌。</p>
+      <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off" />
+      <button id="login-btn">登录</button>
+      <div id="login-err" class="err"></div>
+    </div>
+  </div>
+
+  <!-- 主控 -->
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <span class="brand">孤岛残响 · 管理后台</span>
+      <button id="logout-btn" class="ghost">退出登录</button>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="config">配置管理</button>
+      <button class="tab" data-tab="players">玩家管理</button>
+    </nav>
+
+    <!-- 配置 -->
+    <section id="config-panel" class="panel">
+      <div class="config-layout">
+        <div class="config-files">
+          <h3>配置文件</h3>
+          <div id="config-files" class="file-list"></div>
+        </div>
+        <div class="config-editor">
+          <div class="row">
+            <strong id="config-name">—</strong>
+            <button id="config-save" class="primary">保存</button>
+          </div>
+          <textarea id="config-text" spellcheck="false" placeholder="选择左侧文件…"></textarea>
+          <div id="config-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 玩家 -->
+    <section id="players-panel" class="panel hidden">
+      <div class="players-layout">
+        <div class="players-list">
+          <h3>存活在玩的玩家</h3>
+          <table id="players-table">
+            <thead>
+              <tr><th>名字</th><th>层</th><th>HP</th><th>感染</th><th>战斗</th><th>分数</th></tr>
+            </thead>
+            <tbody id="players-body"></tbody>
+          </table>
+          <div id="players-status" class="status"></div>
+        </div>
+        <div class="player-detail hidden" id="player-detail">
+          <div class="row">
+            <strong id="player-name">—</strong>
+            <button id="player-back" class="ghost">返回列表</button>
+            <button id="player-save" class="primary">保存状态</button>
+          </div>
+          <p class="muted">编辑下方完整状态 JSON（含背包 inventory / 武器 weapon / 护甲 armor / 货币 cash·scrap 等），保存后立即生效，玩家下次行动会加载这份状态。</p>
+          <textarea id="player-state" spellcheck="false"></textarea>
+          <div id="player-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/js/admin.js"></script>
+</body>
+</html>

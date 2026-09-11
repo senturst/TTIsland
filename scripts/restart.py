@@ -139,7 +139,7 @@ def main() -> int:
         return 1
 
     cmd = [str(py), "-m", "uvicorn", "app.main:app",
-           "--host", "127.0.0.1", "--port", str(PORT), "--log-level", "info"]
+           "--host", "0.0.0.0", "--port", str(PORT), "--log-level", "info"]
     if args.reload:
         cmd += ["--reload", "--reload-dir", "app"]
 

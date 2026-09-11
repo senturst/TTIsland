@@ -1,0 +1,122 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel-2: #1f232c;
+  --line: #2a2f3a;
+  --text: #e6e9ef;
+  --muted: #8b93a3;
+  --accent: #4fb286;
+  --accent-2: #3b82f6;
+  --danger: #ef5350;
+  --ok: #4fb286;
+  --err: #ef5350;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+
+/* ---- 登录 ---- */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.login-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 32px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-card h1 { margin: 0; font-size: 20px; }
+.login-card input {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px;
+  font-size: 14px;
+}
+
+/* ---- 通用按钮 ---- */
+button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #06120c; font-weight: 600; }
+button.ghost { background: transparent; }
+button.tab { background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 16px; }
+button.tab.active { border-bottom-color: var(--accent); color: var(--text); }
+
+/* ---- 顶栏 ---- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 700; letter-spacing: .5px; }
+
+/* ---- tabs ---- */
+.tabs { display: flex; gap: 4px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+
+/* ---- 面板 ---- */
+.panel { padding: 20px; }
+.row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+
+/* ---- 配置 ---- */
+.config-layout { display: grid; grid-template-columns: 220px 1fr; gap: 16px; }
+.file-list { display: flex; flex-direction: column; gap: 6px; }
+.file-item { text-align: left; }
+.config-editor textarea, .player-detail textarea {
+  width: 100%;
+  min-height: 60vh;
+  background: #0b0d11;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #d6e0c8;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* ---- 玩家 ---- */
+.players-layout { display: grid; grid-template-columns: 1fr; gap: 16px; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
+tbody tr:hover { background: var(--panel-2); }
+
+/* ---- 状态提示 ---- */
+.status { margin-top: 10px; min-height: 18px; color: var(--muted); font-size: 13px; }
+.status.ok { color: var(--ok); }
+.status.err { color: var(--err); }
+.err { color: var(--err); font-size: 13px; min-height: 16px; }
+
+@media (max-width: 720px) {
+  .config-layout { grid-template-columns: 1fr; }
+}

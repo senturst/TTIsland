@@ -92,13 +92,13 @@ def player_profile(cfg: GameConfig, state: dict) -> dict[str, Any]:
 
 
 def _armor_value(cfg: GameConfig, state: dict) -> float:
-    armor = state.get("armor")
-    if not armor:
-        return 0.0
-    aid = armor["id"] if isinstance(armor, dict) else armor
-    base = float(cfg.item(aid).get("armor", 0))
-    delta = float(armor.get("armor_delta", 0)) if isinstance(armor, dict) else 0.0
-    return max(0.0, base + delta)
+    """玩家固定减伤仅来自基础值 + 天赋。
+
+    装备（护甲）的减伤改为「按等级百分比吸伤」，由
+    RunEngine._apply_armor_absorb 结算并扣除耐久，不再这里固定减伤——
+    否则会同时有固定减伤 + 百分比吸伤两层，调手感时互相打架。
+    """
+    return 0.0
 
 
 def equipped_weapon(cfg: GameConfig, state: dict) -> dict | None:

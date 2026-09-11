@@ -27,7 +27,10 @@ player:
   # 开局消耗品 [item_id, 数量]
   start_items:
     - [bandage, 1]
-    - [canned, 1]
+  # 背包容量（格）。单格 = 一个物品条目；可堆叠物资（弹药/绷带/材料/纪念品）
+  # 只占 1 格（qty 累加不占格），所以天然限制"无限囤积"。
+  # 总容量 = 这里 + 背包天赋 + 已装备背包 slots + 护甲口袋 pockets。
+  bag_slots: 8
 
 # 下楼时回一点血。
 # 没有它，整局就是一条单向消耗的血条——前面多掉一点血，后面通过率就全线崩，
@@ -46,7 +49,22 @@ combat:
   flee_per_agi: 5
   flee_clamp: [10, 90]
   # 逃跑失败时敌人免费打一次的概率
-  flee_fail_punish_chance: 1.0
+  flee_fail_punish_chance: 0.75
+  # 逃跑=冲刺，消耗体力。体力是会被消耗的真实资源（罐头/能量饮料/篝火回体力），
+  # 否则"体力 +N"永远是空话（满体力时 +N 被钳到上限，玩家看不到任何变化）。
+  flee_stamina_cost: 4
+  # 体力→战斗：消耗体力"瞄准"，换临时命中加成。设计红线：绝不对命中做任何体力惩罚，
+  # 低体力只是用不了"瞄准"，绝不会降低基础命中。
+  brace_stamina_cost: 5
+  brace_acc_bonus: 15
+  brace_turns: 3
+  # 防具按「等级」直接抵消伤害（百分比吸伤），取代旧的固定减伤数值。
+  # 每只怪独立结算：命中后先按 tier 比例吸伤（至少吸 min_absorb 点），
+  # 吸掉的量转为防具耐久损耗；耐久耗尽则不再吸伤。
+  # 远程枪械命中率不受体力影响——这里只描述防具，命中公式本来就不含体力项。
+  armor_absorb:
+    tiers: {1: 0.10, 2: 0.18, 3: 0.25}   # 最低级 10% → 最高级 25%
+    min_absorb: 1                          # 每次受击至少吸 1 点（防具永远有点用）
 
 infection:
   max: 100
@@ -98,8 +116,8 @@ noise:
 legacy:
   max_tier: 2
   max_passes: 3
-  weapon_dmg_mult: 0.85      # 每传承一代的伤害倍率
-  durability_mult: 0.6       # 每传承一代的耐久倍率
+  weapon_dmg_mult: 1.0      # 每传承一代的伤害倍率
+  durability_mult: 0.75       # 每传承一代的耐久倍率
   armor_penalty: 1           # 每传承一代护甲值扣减
   # 纪念品无属性，不衰减，可以一直传下去（它们是情感物件，不是数值）
 
@@ -123,15 +141,64 @@ loot:
     medical: 15
     material: 15
     trinket: 10
+    gear: 8
   ammo_per_drop: [2, 4]      # 每次弹药掉落 2-4 发 → 每层期望 6-10 发
   category_tables:
     ammo: [ammo_pistol, ammo_shotgun, ammo_smg]
-    food: [canned, clean_water, vodka]
-    medical: [bandage, antibiotic]
-    material: [battery, scrap]
+    food: [canned, clean_water, vodka, energy_drink]
+    medical: [bandage, antibiotic, medkit, painkiller, disinfectant]
+    material: [battery, scrap, duct_tape, alcohol]
     trinket: [wedding_ring, dog_tag, photo]
+    gear: [small_pack, hiking_pack, large_pack]
   # 近战武器耐久归零后伤害倍率
   broken_weapon_mult: 0.5
+  # 搜索多件：拿到第一件后，按 p·decay^(k-1) 续 roll，直到失败或到顶 N
+  # 这是"废铁/装备来源"的核心——让单次搜索有概率摸到好几样，缓解二层以后没武器
+  search:
+    max_items: 3            # 单次搜索最多获得的物品数（可调）
+    extra_base_chance: 0.4  # 拿到第 1 件后，续得第 2 件的基础概率
+    extra_decay: 0.3        # 每多一件，续 roll 概率乘以该系数（第 3 件 = 0.6×0.5）
+
+# 现金（局内货币）：搜索时「独立」概率获取的额外掉落，不走类别权重。
+# 与上面的类别掉落互不干扰——摸没摸到物资，都另掷一次骰决定给不给现金。
+loot_cash:
+  chance: 0.12           # 每次搜索独立判定
+  min: 1
+  max: 5
+
+# 商人（用废铁 / 现金交易；铺货随机；含作者怜悯与感染商人）
+merchant:
+  # ---- 修理：近战武器与护甲都可修，玩家「选择」用废铁还是现金 ----
+  # 每次修理都按 tier 降低耐久上限（等级越高损耗越低，8%~25%），
+  # 修理后当前耐久 = 新的（已缩水）上限；这是对"无限续命"的封顶。
+  repair:
+    scrap_per_point: 0.125        # 每点缺失耐久耗废铁（向上取整）
+    cash_per_point: 0.5           # 每点缺失耐久耗现金（与废料二选一）
+    durability_loss_pct: {1: 0.25, 2: 0.18, 3: 0.08}  # 每次修理的耐久上限损耗
+    target: both                  # both=修近战武器与护甲；melee_only=只修近战
+
+  # ---- 铺货模板：固定 1 武器位 / 1 装备位（护甲或背包）/ 1 背包位 / 3 其他位 ----
+  # 进入商人房间时按此随机生成 shop（每个位从对应池各抽 1 件），全部可配。
+  shop_slots:
+    weapon: 1      # 池：items.weapons（排除近战起始撬棍等无意义项由引擎过滤）
+    gear: 1        # 池：items.armor ∪ items.backpacks
+    backpack: 1    # 池：items.backpacks
+    other: 3       # 池：ammo/consumable/material/trinket
+  # 其他位候选池（避免全是废铁；含少量武器弹药与消耗品）
+  other_pool: [ammo_pistol, ammo_shotgun, ammo_smg, bandage, medkit, canned,
+               battery, scrap, duct_tape, alcohol, painkiller, disinfectant,
+               wedding_ring, dog_tag, photo]
+  # 卖出价 = 物品 value × sell_ratio（向下取整，至少 1）
+  sell_ratio: 0.65
+
+  # ---- 作者怜悯：极低概率触发，仅普通商人；玩家免费任选一件 ----
+  authors_mercy_chance: 0.01      # 默认 1%
+
+  # ---- 感染商人：索 50%（可配）最大 HP 换 50% 折扣；当前 HP 未回满不可交易 ----
+  plagued:
+    spawn_chance: 0.15            # 普通商人房间中出现感染商人的概率
+    hp_cost_pct: 0.50             # 交易所索取的「最大生命」比例
+    discount: 0.50                # 所有标价打五折
 
 mapgen:
   rooms_base: 8
@@ -148,8 +215,8 @@ mapgen:
     5: 0.40
   # 主干 / 分支上的房间类型权重
   room_weights:
-    main:   {combat: 40, loot: 20, event: 15, empty: 15, grave: 5,  special: 5}
-    branch: {combat: 20, loot: 35, event: 15, empty: 5,  grave: 20, special: 5}
+    main:   {combat: 40, loot: 20, event: 15, empty: 15, grave: 5,  special: 5, merchant: 5}
+    branch: {combat: 20, loot: 35, event: 15, empty: 5,  grave: 20, special: 5, merchant: 5}
 
 # ============================================================================
 # 平衡目标

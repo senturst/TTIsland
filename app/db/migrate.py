@@ -9,13 +9,48 @@ from pathlib import Path
 
 from .pool import connect, db_path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 # 未来结构变更在此追加：
 #   (目标版本, ["ALTER TABLE ...", ...])
-MIGRATIONS: list[tuple[int, list[str]]] = []
+MIGRATIONS: list[tuple[int, list[str]]] = [
+    # v2：P4 私人回执表
+    (2, [
+        """
+        CREATE TABLE IF NOT EXISTS notifications (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id   TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            body        TEXT NOT NULL,
+            data_json   TEXT NOT NULL DEFAULT '{}',
+            created_at  INTEGER NOT NULL,
+            read        INTEGER NOT NULL DEFAULT 0
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_notif_player ON notifications(player_id, read, created_at DESC)",
+    ]),
+    # v3：世界事件播报表（P3 重大事件持久化，SSE 只是实时通道）
+    (3, [
+        """
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id   TEXT NOT NULL,
+            player_name TEXT NOT NULL,
+            channel     TEXT NOT NULL DEFAULT 'world',
+            kind        TEXT NOT NULL DEFAULT 'chat',
+            body        TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_chat_time ON chat_messages(channel, created_at DESC)",
+    ]),
+    # v4：玩家自定名标记（开局让玩家输入名字；默认随机名需提示）
+    (4, [
+        "ALTER TABLE players ADD COLUMN named INTEGER NOT NULL DEFAULT 0",
+    ]),
+]
 
 
 def apply_migrations() -> int:

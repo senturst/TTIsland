@@ -19,11 +19,12 @@ levels:
     subtitle: 地表 · 日光尚在
     brief: 灾难刚过去不久。阳光还能照到街面，物资也还没被搜干净。
     mechanism: 日光
-    mechanism_desc: 视野良好，搜刮效率 +50%。这是你囤积物资的最后机会。
+    mechanism_desc: 视野良好，搜刮效率 +100%。这是你囤积物资的最后机会——新手地图，掉率上调，但怪物本身不弱。
     entry_text: 你从藏身的地下室爬出来。街上很安静，安静得过分。
     exit_text: 你找到一处通往地下的检修井。往下走，光线开始消失。
     modifiers:
-      loot_rolls_mult: 1.5
+      loot_rolls_mult: 2.0       # 相比其它层更慷慨的掉率（新手友好）
+      search_extra_flat: 0.2     # 搜索续 roll 概率额外 +20%，更容易一次摸到多件
     on_enter_level:
       infection_decay: 0
     zombie_density: 0.96

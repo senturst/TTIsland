@@ -48,6 +48,27 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
                     return "talent", {"index": i}
         return "talent", {"index": 0}
 
+    if st.get("pending_decision") == "grave_pick":
+        # 模拟一个会把第一件带走的正常玩家（墓碑每次只取一件）
+        choices = st.get("grave_choices") or []
+        if choices:
+            return "grave", {"choice": "take", "uid": choices[0]["uid"]}
+        return "grave", {"choice": "skip"}
+
+    if st.get("pending_decision") == "bag_full":
+        # 满包：模拟会腾位拿走新物的玩家——丢背包里第一件（整件移除必腾出 1 格）
+        inv = st.get("inventory") or []
+        if inv:
+            return "discard", {"choice": "drop", "item": inv[0]["id"]}
+        return "discard", {"choice": "skip"}
+
+    if st.get("pending_decision") == "bag_overflow":
+        # 换装缩水导致溢出：丢到装得下为止（必然有可丢项，否则不会溢出）
+        inv = st.get("inventory") or []
+        if inv:
+            return "discard", {"choice": "drop", "item": inv[0]["id"]}
+        return "status", {}
+
     hp_ratio = st["hp"] / max(1, st["hp_max"])
 
     if st.get("in_combat"):
@@ -99,9 +120,15 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
     for a in acts:
         if a["id"] == "event":
             return "event", {"choice": a["choice"]}
-    for a in acts:
-        if a["id"] == "grave":
+    grave_acts = [a for a in acts if a["id"] == "grave"]
+    if grave_acts:
+        g = st["room"].get("grave") or {}
+        if g.get("gear"):
             return "grave", {"choice": "loot"}
+        # 空墓碑：没有可拿的东西。
+        # 注意：引擎的「离开」只是"不碰遗体"，是个 no-op，不会移动房间，
+        # 如果这里反复返回 leave 就会原地空转（实测 56% 的局卡死在这）。
+        # 正确做法是直接 fall through 到下面的 move，离开这个房间。
     for a in acts:
         if a["id"] == "campfire" and hp_ratio < 0.7:
             return "campfire", {}

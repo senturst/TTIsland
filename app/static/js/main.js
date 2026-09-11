@@ -3,7 +3,7 @@
 import { api } from "./api.js";
 import { state, mutate, applyServerState } from "./state.js";
 import { initTerm, appendLine, playLines, skipTyping, patchLine } from "./term.js";
-import { renderAll, setBusy, flashHorde, setDegraded } from "./render.js";
+import { renderAll, setBusy, flashHorde, setDegraded, pushWorldEvent, renderLeaderboard } from "./render.js";
 
 let host = null;
 let idleTimer = null;
@@ -23,6 +23,27 @@ function resetIdle() {
 }
 
 /* ------------------------------------------------------------------ */
+/* 动态视口高度：iOS Safari 的底部工具栏（地址栏/标签栏）会一直盖在页面之上，
+   而 100dvh 不把它算进高度，于是最底部的命令区被压在工具栏底下、看不全。
+   本游戏是 overflow:hidden 的内部滚动布局（无页面级滚动），Safari 永远不会
+   因此收起工具栏，所以必须用 visualViewport 取「真正看得见」的高度，
+   并在工具栏伸缩时实时同步——这样命令区始终完整落在可见区里。 */
+function setupViewport() {
+  const vv = window.visualViewport;
+  const apply = () => {
+    const h = vv ? vv.height : window.innerHeight;
+    document.documentElement.style.setProperty("--app-vh", `${h}px`);
+  };
+  apply();
+  if (vv) {
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+  }
+  window.addEventListener("resize", apply);
+  window.addEventListener("orientationchange", apply);
+}
+
+/* ------------------------------------------------------------------ */
 async function handleAction(a) {
   if (state.busy) return;
   await send(a.id, {
@@ -30,6 +51,8 @@ async function handleAction(a) {
     to: a.to,
     choice: a.choice,
     item: a.item,
+    pay: a.pay,
+    uid: a.uid,
   });
 }
 
@@ -41,6 +64,8 @@ async function send(action, payload = {}) {
   try {
     const data = await api.action(action, payload);
     await consume(data);
+    // 任何一次响应后，刷新一次私人回执（墓碑被摸走的提醒）
+    checkNotifications();
   } catch (err) {
     appendLine(host, `! ${err.message}`, "bad");
   } finally {
@@ -119,48 +144,163 @@ async function resume() {
 }
 
 /* ------------------------------------------------------------------ */
-/** 自由文本指令：把中文/英文关键字映射到 action id。 */
-const KEYWORDS = [
-  [/^(a|attack|攻击|打)$/, "attack"],
-  [/^(s|shoot|fire|射击|开枪)$/, "shoot"],
-  [/^(f|flee|run|逃跑|跑)$/, "flee"],
-  [/^(search|loot|搜|翻|搜刮)$/, "search"],
-  [/^(d|descend|down|下|下一层|下楼)$/, "descend"],
-  [/^(evac|撤离)$/, "evac"],
-  [/^(status|状态|st)$/, "status"],
-  [/^(quit|giveup|放弃)$/, "give_up"],
-];
+/** 快捷键分发：按命令区按钮顺序 Z/X/C/V 触发前 4 个动作。
+ * C 同时保留为「使用物品」备用键：当命令区没有第 3 个按钮时生效。
+ * 只在「本局进行中且无可决断」时响应，避免误触。 */
+function dispatchHotkey(rawKey) {
+  const k = rawKey.toLowerCase();
+  if (state.busy) return;
+  if (state.status !== "active" || state.pendingDecision) return;
 
-function resolveText(text) {
-  const t = text.trim().toLowerCase();
-  for (const [re, id] of KEYWORDS) {
-    if (re.test(t)) return { id, payload: {} };
+  const idx = ["z", "x", "c", "v"].indexOf(k);
+  if (idx === -1) return;
+
+  const acts = state.actions || [];
+  const a = acts[idx];
+  if (a) {
+    send(a.id, { index: a.index, to: a.to, choice: a.choice, item: a.item });
+    return;
   }
-  // 数字：按按钮顺序执行
-  if (/^\d+$/.test(t)) {
-    const idx = parseInt(t, 10) - 1;
-    const a = state.actions?.[idx];
-    if (a) return { id: a.id, payload: { index: a.index, to: a.to, choice: a.choice, item: a.item } };
+
+  // C 键 fallback：命令区没占满 3 个时，使用/装备随身第一个可用物品
+  if (k === "c") {
+    const it = (state.inventory || []).find((i) => i.usable || i.wearable);
+    if (it) send(it.usable ? "use" : "equip", { item: it.id });
   }
-  // 用 X → 使用物品
-  const useMatch = t.match(/^(use|用|使用)\s*(.+)$/);
-  if (useMatch) {
-    const name = useMatch[2].trim();
-    const hit = state.inventory.find((i) => i.name === name || i.name.includes(name));
-    if (hit) return { id: "use", payload: { item: hit.id } };
+}
+
+/* ------------------------------------------------------------------ */
+/* 世界事件 SSE：只订阅"重大事件"广播（死亡/撤离/破纪录），不做聊天。
+   收到后更新顶部播报条 + 世界面板的实时列表。 */
+let worldEventBuffer = [];
+
+function setupSSE() {
+  const es = new EventSource("/api/events/stream");
+  es.addEventListener("broadcast", (e) => {
+    try {
+      const ev = JSON.parse(e.data);
+      pushWorldEvent(ev);
+    } catch { /* 坏帧忽略 */ }
+  });
+  es.onerror = () => { /* 浏览器会自动重连，静默 */ };
+}
+
+/* ------------------------------------------------------------------ */
+/* 世界面板：三榜切换 + 实时播报列表。 */
+let currentBoard = "score";
+
+async function refreshLeaderboard(by = currentBoard) {
+  currentBoard = by;
+  const listEl = document.getElementById("world-list");
+  if (!listEl) return;
+  try {
+    const data = await api.leaderboard(by);
+    renderLeaderboard(data.entries || [], by);
+  } catch {
+    listEl.innerHTML = `<li class="world-events-empty">榜单加载失败</li>`;
   }
-  return null;
+}
+
+function setupWorldPanel() {
+  const overlay = document.getElementById("world-overlay");
+  const openBtn = document.getElementById("btn-world");
+  const closeBtn = document.getElementById("world-close");
+  if (!overlay || !openBtn) return;
+
+  openBtn.addEventListener("click", () => {
+    overlay.classList.remove("hidden");
+    refreshLeaderboard(currentBoard);
+  });
+  closeBtn.addEventListener("click", () => overlay.classList.add("hidden"));
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.classList.add("hidden");
+  });
+
+  document.querySelectorAll(".wtab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".wtab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      refreshLeaderboard(tab.dataset.board);
+    });
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* 私人回执：墓碑被别人摸走时，原主人收到"谁动了我"。
+   只在本机上线时拉取一次并标记已读，避免重复打扰。 */
+async function checkNotifications() {
+  try {
+    const data = await api.notifications();
+    const items = data.items || [];
+    if (!items.length) return;
+    for (const n of items) {
+      appendLine(host, `📨 回执：${n.body}`, "sys");
+    }
+    await api.markNotifications(items.map((n) => n.id));
+  } catch { /* 回执丢失不致命 */ }
+}
+
+/* ------------------------------------------------------------------ */
+/** 开局命名弹窗：返回玩家最终确认的名字（经服务端 DeepSeek 审核）。 */
+function promptName() {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("name-overlay");
+    const input = document.getElementById("name-input");
+    const err = document.getElementById("name-err");
+    const btn = document.getElementById("name-confirm");
+    if (!overlay || !input || !btn) { resolve(null); return; }
+
+    overlay.classList.remove("hidden");
+    input.value = "";
+    err.classList.add("hidden");
+    input.focus();
+
+    const showErr = (m) => { err.textContent = m; err.classList.remove("hidden"); };
+    const cleanup = () => {
+      btn.removeEventListener("click", done);
+      input.removeEventListener("keydown", onKey);
+    };
+    const done = async () => {
+      const name = input.value.trim();
+      if (!name) { showErr("先起个名字吧"); return; }
+      btn.disabled = true;
+      try {
+        const data = await api.setName(name);
+        if (data.ok) {
+          overlay.classList.add("hidden");
+          cleanup();
+          resolve(data.name);
+        } else {
+          showErr(data.reason || "这个名字不行");
+          btn.disabled = false;
+        }
+      } catch (e) {
+        showErr(e.message);
+        btn.disabled = false;
+      }
+    };
+    const onKey = (e) => { if (e.key === "Enter") done(); };
+
+    btn.addEventListener("click", done);
+    input.addEventListener("keydown", onKey);
+  });
 }
 
 /* ------------------------------------------------------------------ */
 async function boot() {
+  setupViewport();
   const statusNode = document.getElementById("boot-status");
   host = initTerm(document.getElementById("term"));
 
   try {
     statusNode.textContent = "校验身份…";
     const hello = await api.hello();
-    mutate((s) => { s.player = hello.player; });
+    let playerName = hello.player?.name;
+    if (hello.needs_name) {
+      const chosen = await promptName();
+      if (chosen) playerName = chosen;
+    }
+    mutate((s) => { s.player = { ...hello.player, name: playerName }; });
 
     statusNode.textContent = "同步配置…";
     const meta = await api.meta();
@@ -174,12 +314,17 @@ async function boot() {
     document.getElementById("app").classList.remove("hidden");
     resetIdle();
 
+    setupSSE();
+    setupWorldPanel();
+
     statusNode.textContent = "恢复进度…";
     const resumed = await resume();
     if (!resumed) {
       appendLine(host, "孤岛残响", "level");
       appendLine(host, "五层之下，有一架直升机。它不会等你第二次。", "flavor");
       await startRun();
+    } else {
+      checkNotifications();
     }
   } catch (err) {
     statusNode.textContent = `接入失败：${err.message}`;
@@ -187,34 +332,18 @@ async function boot() {
     return;
   }
 
-  // 输入
-  const form = document.getElementById("cmd-form");
-  const input = document.getElementById("cmd-text");
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const text = input.value;
-    if (!text.trim()) return;
-    input.value = "";
-    const resolved = resolveText(text);
-    if (!resolved) {
-      appendLine(host, `? 不明白「${text}」。用上面的按钮，或输入 攻击 / 搜刮 / 下一层。`, "sys");
-      return;
-    }
-    await send(resolved.id, resolved.payload);
-  });
-
-  // 点击/按键跳过打字机
+  // 点击跳过打字机
   document.getElementById("term").addEventListener("click", () => {
     skipTyping();
-    input.focus();
-  });
-  document.addEventListener("keydown", (e) => {
-    resetIdle();
-    if (e.key === "Escape") skipTyping();
-    if (e.key.length === 1 && document.activeElement !== input) input.focus();
   });
 
-  input.focus();
+  // 键盘：Esc 跳过打字机；Z/X/C/V 依次触发命令区前四个按钮
+  document.addEventListener("keydown", (e) => {
+    resetIdle();
+    if (e.key === "Escape") { skipTyping(); return; }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    dispatchHotkey(e.key);
+  });
 }
 
 boot();

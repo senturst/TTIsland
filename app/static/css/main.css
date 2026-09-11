@@ -31,6 +31,7 @@
 
 html, body {
   margin: 0; padding: 0; height: 100%;
+  /* 手机地址栏伸缩时，动态视口高度能跟着变，底部命令区才不会被遮 */
   background: var(--bg);
   color: var(--text);
   font-family: var(--mono);
@@ -38,7 +39,10 @@ html, body {
   line-height: 1.75;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
 }
+@supports (height: 100dvh) { html, body { height: 100dvh; } }
 
 /* 背景：一层几乎看不见的血渍暗斑 + 缓慢下移的扫描线 */
 body::before {
@@ -95,13 +99,15 @@ body::after {
 /* ============================ 布局 ============================ */
 .app {
   position: relative; z-index: 1;
-  height: 100%;
+  height: var(--app-vh, 100dvh);
   display: grid;
   /* HUD / 主文本(撑满) / 敌人 / 随身物品 / 命令区 */
   grid-template-rows: auto 1fr auto auto auto;
   max-width: 900px;
   margin: 0 auto;
-  padding: env(safe-area-inset-top) 0 0;
+  /* 左右也留出安全区，避免刘海/圆角屏把内容吃掉 */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 0;
 }
 
 /* ============================ HUD ============================ */
@@ -148,6 +154,7 @@ body::after {
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
   transition: filter .5s ease;
+  min-height: 0; /* grid 子项需要这个才能正确内部滚动，否则会撑开父容器 */
 }
 .term::-webkit-scrollbar { width: 6px; }
 .term::-webkit-scrollbar-thumb { background: var(--line); }
@@ -242,13 +249,16 @@ body::after {
   font-size: .74rem;
   display: inline-flex;
   align-items: center;
-  gap: .22rem;
+  flex-wrap: wrap;
+  gap: .22rem .35rem;
   padding: .1rem .42rem;
   border: 1px solid var(--line);
   border-radius: 2px;
   background: var(--panel-2);
   color: var(--text-dim);
   white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-user-select: none; user-select: none;
 }
 .pack-item.act { cursor: pointer; color: var(--text); }
 .pack-item.act:hover { border-color: var(--text-faint); color: var(--phosphor); background: #1a2422; }
@@ -261,11 +271,24 @@ body::after {
 .pack-item.weapon-held { border-color: rgba(127,224,138,.3); color: var(--phosphor); }
 .pack-item .qty { color: var(--text-faint); }
 .pack-item .wear { color: #a06a55; font-size: .68rem; }
+/* 数值摘要：单独占一行，让玩家不用真的用一次就知道道具干什么 */
+.pack-item .desc {
+  flex-basis: 100%;
+  white-space: normal;
+  font-size: .66rem;
+  line-height: 1.25;
+  color: var(--text-faint);
+}
+.pack-item.act .desc, .pack-item.weapon-held .desc { color: var(--text-dim); }
 
 .pack-empty { color: var(--text-faint); font-size: .74rem; }
 
 /* ============================ 命令区 ============================ */
-.cmd { border-top: 1px solid var(--line); background: var(--panel); padding: .55rem .9rem .7rem; }
+.cmd {
+  border-top: 1px solid var(--line); background: var(--panel);
+  /* 留出刘海屏底部安全区，否则 home indicator 会挡住按钮 */
+  padding: .55rem .9rem calc(.7rem + env(safe-area-inset-bottom));
+}
 .cmd-buttons { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .5rem; }
 
 .btn {
@@ -278,6 +301,8 @@ body::after {
   border-radius: 2px;
   cursor: pointer;
   transition: background .12s, border-color .12s, color .12s;
+  touch-action: manipulation;
+  -webkit-user-select: none; user-select: none;
 }
 .btn:hover:not(:disabled) { background: #1a2422; border-color: var(--text-faint); color: var(--phosphor); }
 .btn:active:not(:disabled) { transform: translateY(1px); }
@@ -292,23 +317,22 @@ body::after {
   border-color: rgba(127,224,138,.3); margin-bottom: .3rem;
 }
 
-.cmd-input { display: flex; align-items: center; gap: .5rem; }
-.cmd-input .prompt { color: var(--phosphor); }
-.cmd-input input {
-  flex: 1;
-  font-family: var(--mono); font-size: .9rem;
-  background: transparent; border: none; outline: none;
-  color: var(--text); caret-color: var(--phosphor);
-  padding: .25rem 0;
+.cmd-hint {
+  display: flex; flex-wrap: wrap; gap: .9rem;
+  font-size: .72rem; color: var(--text-faint);
+  padding-top: .1rem;
 }
-.cmd-input input::placeholder { color: var(--text-faint); }
-.cmd-input .send {
-  font-family: var(--mono); font-size: .78rem;
-  background: transparent; color: var(--text-faint);
-  border: 1px solid var(--line); border-radius: 2px;
-  padding: .2rem .6rem; cursor: pointer;
+.cmd-hint span { display: inline-flex; align-items: center; gap: .3rem; }
+
+kbd {
+  font-family: var(--mono); font-size: .68rem; line-height: 1;
+  min-width: 1.05rem; text-align: center;
+  padding: .12rem .25rem;
+  background: var(--panel-2); color: var(--phosphor);
+  border: 1px solid var(--line); border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.4);
 }
-.cmd-input .send:hover { color: var(--phosphor); border-color: var(--text-faint); }
+kbd.hot { margin-left: .35rem; }
 
 /* ============================ 提示条 ============================ */
 .degraded-banner {
@@ -318,19 +342,206 @@ body::after {
   background: rgba(10,12,10,.9); z-index: 50; pointer-events: none;
 }
 
+/* ============================ 世界入口 / 事件播报 ============================ */
+.btn-world {
+  margin-left: auto;
+  font-family: var(--mono); font-size: .76rem;
+  background: transparent; color: var(--phosphor);
+  border: 1px solid var(--line); border-radius: 2px;
+  padding: .12rem .5rem; cursor: pointer;
+  touch-action: manipulation; user-select: none;
+}
+.btn-world:hover { border-color: var(--text-faint); }
+
+/* 顶部实时事件播报条：有人死亡/撤离/破纪录时滑入，几秒后淡出 */
+.event-ticker {
+  font-family: var(--mono); font-size: .78rem;
+  padding: .3rem .9rem; color: var(--text-dim);
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; transition: opacity .4s ease;
+}
+.event-ticker.show { opacity: 1; }
+.event-ticker .et-kind { color: var(--phosphor); margin-right: .4rem; }
+.event-ticker.k-death .et-kind { color: var(--danger); }
+.event-ticker.k-escape .et-kind { color: var(--good); }
+.event-ticker.k-record .et-kind { color: var(--amber); }
+
+/* ============ 商人面板 ============ */
+.merchant {
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: .4rem .9rem .55rem;
+}
+.merchant-head {
+  display: flex; align-items: baseline; gap: .6rem;
+  margin-bottom: .35rem;
+  flex-wrap: wrap;
+}
+.merchant-title {
+  font-family: var(--mono); font-size: .85rem; letter-spacing: .1em;
+  color: var(--amber);
+}
+.merchant-title.plagued { color: var(--danger); }
+.merchant-note {
+  font-size: .7rem; color: var(--text-faint);
+}
+.merchant-cols {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: .6rem;
+}
+.merchant-col { min-width: 0; }
+.merchant-col-title {
+  font-size: .68rem; letter-spacing: .14em; color: var(--text-faint);
+  margin-bottom: .3rem;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: .15rem;
+}
+.merchant-shop, .merchant-repair, .merchant-sell {
+  display: flex; flex-direction: column; gap: .3rem;
+}
+.mch-card {
+  font-family: var(--mono); font-size: .72rem;
+  border: 1px solid var(--line); border-radius: 2px;
+  background: var(--panel-2);
+  padding: .25rem .4rem;
+  display: flex; flex-direction: column; gap: .12rem;
+}
+.mch-name { color: var(--text); }
+.mch-desc { color: var(--text-faint); font-size: .66rem; line-height: 1.2; white-space: normal; }
+.mch-cost { color: var(--amber); font-size: .7rem; }
+.mch-btn {
+  font-size: .7rem !important; padding: .25rem .3rem !important; min-height: 0 !important;
+  width: 100%; margin-top: .1rem;
+}
+@media (max-width: 560px) {
+  .merchant-cols { grid-template-columns: 1fr; }
+}
+
+/* ============ 开局命名弹窗 ============ */
+.name-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1.4rem 1.6rem;
+  width: min(22rem, 86vw);
+  text-align: center;
+  display: flex; flex-direction: column; gap: .7rem;
+}
+.name-title { font-family: var(--mono); font-size: 1.05rem; color: var(--phosphor); letter-spacing: .08em; }
+.name-sub { font-size: .76rem; color: var(--text-faint); line-height: 1.4; }
+.name-input {
+  font-family: var(--mono); font-size: 1rem;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: .5rem .7rem; text-align: center;
+  outline: none;
+}
+.name-input:focus { border-color: var(--phosphor); }
+.name-err { color: var(--danger); font-size: .76rem; min-height: 1em; }
+.name-confirm { width: 100%; }
+
+
+/* 世界面板（排行榜 + 实时播报） */
+.overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(4,6,5,.72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.world-panel {
+  width: min(560px, 94vw); max-height: 86vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 4px; padding: .8rem .9rem 1rem;
+}
+.world-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+.world-title { font-size: 1.05rem; color: var(--phosphor); letter-spacing: .2em; }
+.world-close {
+  background: transparent; border: 1px solid var(--line); color: var(--text-dim);
+  border-radius: 2px; width: 1.8rem; height: 1.8rem; cursor: pointer; font-size: .9rem;
+}
+.world-close:hover { color: var(--phosphor); border-color: var(--text-faint); }
+.world-tabs { display: flex; gap: .4rem; margin-bottom: .6rem; }
+.wtab {
+  flex: 1; font-family: var(--mono); font-size: .82rem;
+  background: var(--panel-2); color: var(--text-dim);
+  border: 1px solid var(--line); border-radius: 2px; padding: .35rem;
+  cursor: pointer;
+}
+.wtab.active { color: var(--phosphor); border-color: var(--phosphor); }
+.world-list { list-style: none; margin: 0 0 .8rem; padding: 0; }
+.world-list li {
+  display: flex; align-items: center; gap: .6rem;
+  font-family: var(--mono); font-size: .84rem;
+  padding: .3rem .2rem; border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.world-list .rank { width: 1.6rem; color: var(--text-faint); text-align: right; }
+.world-list .name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-list .val { color: var(--phosphor); }
+.world-list .me { color: var(--amber); }
+.world-events-title { font-size: .72rem; color: var(--text-faint); letter-spacing: .2em; margin-bottom: .3rem; }
+.world-events-list { list-style: none; margin: 0; padding: 0; max-height: 30vh; overflow-y: auto; }
+.world-events-list li {
+  font-family: var(--mono); font-size: .78rem; color: var(--text-dim);
+  padding: .22rem 0; border-bottom: 1px solid rgba(255,255,255,.03);
+}
+.world-events-list .et-kind { color: var(--phosphor); margin-right: .35rem; }
+.world-events-empty { font-size: .76rem; color: var(--text-faint); }
+
+
 /* ============================ 尸潮全屏红闪 ============================ */
 .flash { position: fixed; inset: 0; pointer-events: none; z-index: 55; }
 .flash.on { box-shadow: inset 0 0 90px var(--danger); animation: flash .5s ease 1; }
 @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
 
-/* ============================ 窄屏 ============================ */
+/* ============================ 手机屏 ============================ */
 @media (max-width: 700px) {
-  html, body { font-size: 14px; }
-  .app { padding: 0; }
-  .hud { padding: .45rem .6rem .4rem; }
-  .hud-row { gap: .6rem; }
+  html, body { font-size: 15px; }
+
+  /* 安全区：顶部/底部刘海都留出，命令区不再被 home indicator 挡 */
+  .app { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+
+  .hud { padding: .4rem .7rem .3rem; }
+  .hud-row { gap: .5rem; }
+  /* 元信息 chips 太多，换行会挤掉终端空间 —— 改成横向滑动一行 */
+  .hud-row-meta {
+    flex-wrap: nowrap; overflow-x: auto;
+    -webkit-overflow-scrolling: touch; gap: .35rem;
+    scrollbar-width: none; margin-top: .3rem;
+  }
+  .hud-row-meta::-webkit-scrollbar { display: none; }
   .gauge { flex: 1 1 100%; min-width: 0; }
-  .term { padding: .8rem .6rem; }
-  .cmd { padding: .5rem .6rem .6rem; }
-  .btn { font-size: .78rem; padding: .35rem .6rem; }
+
+  .enemies { padding: .45rem .7rem; }
+
+  .term { padding: .7rem .7rem; }
+
+  .pack { padding: .35rem .7rem; }
+  .pack-items { gap: .35rem; }
+  /* 随身物品整块更易点：放大并撑满高度 */
+  .pack-item {
+    font-size: .82rem;
+    padding: .28rem .5rem;
+    min-height: 38px;
+    align-items: center;
+  }
+  .pack-item .desc { font-size: .68rem; }
+
+  .cmd { padding: .5rem .7rem calc(.85rem + env(safe-area-inset-bottom)); }
+  .cmd-buttons { gap: .4rem; margin-bottom: .4rem; }
+
+  /* 触控友好：按钮做大、撑满一行、至少 44px 高，整块可点 */
+  .btn {
+    flex: 1 1 auto;
+    font-size: .95rem;
+    padding: .6rem .7rem;
+    min-height: 44px;
+    text-align: center;
+  }
+  .btn-talent { width: 100%; }
+
+  /* 手机没有物理键盘：快捷键提示条和按钮上的键盘徽标既占空间又误导，隐藏 */
+  .cmd-hint { display: none; }
+  kbd.hot { display: none; }
 }

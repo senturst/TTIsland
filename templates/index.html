@@ -1,79 +1,146 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<html lang="zh-CN" data-page-node-id="7VhOdfNX7VbuCYFNFCJGi7">
+<head data-page-node-id="hB273XXH3mOI108Cbne5AU">
+<meta charset="UTF-8" data-page-node-id="hvYpGtVP1BAonmUeKnQq9k">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" data-page-node-id="RiW4fo2sT9WZgxSgnbKibe">
+<meta name="color-scheme" content="dark" data-page-node-id="4qw5oMmqv3CcQIRBLLuSte">
 <title>孤岛残响 · 末世文字 Roguelike</title>
-<link rel="stylesheet" href="/static/css/main.css">
+<link rel="stylesheet" href="/static/css/main.css" data-page-node-id="kfABf2AOBl3Ir05m3C4wYU">
 </head>
-<body>
+<body data-page-node-id="AiJ3SGa29LmfSQywtuXwNQ">
 
-<div id="boot" class="boot">
-  <div class="boot-inner">
-    <div class="boot-title">孤岛残响</div>
-    <div class="boot-sub">ESTABLISHING LINK…</div>
-    <div class="boot-status" id="boot-status">正在接入应急频段</div>
+<div id="boot" class="boot" data-page-node-id="5uEJ0fTxAj4rlEMrSBkHJD">
+  <div class="boot-inner" data-page-node-id="eP3eMHqylnqgxfmQ5aRQBH">
+    <div class="boot-title" data-page-node-id="ORxVNCHuOaSE8bxHeX8OoE">孤岛残响</div>
+    <div class="boot-sub" data-page-node-id="KCRUM8fS96ANJYHf6esqXj">ESTABLISHING LINK…</div>
+    <div class="boot-status" id="boot-status" data-page-node-id="5otJAurHEC038OB6O810UG">正在接入应急频段</div>
   </div>
 </div>
 
-<main id="app" class="app hidden" aria-live="polite">
+<!-- ============ 开局命名弹窗 ============
+     默认随机名需要在开局让玩家自定名字；名字经服务端 DeepSeek 审核。 -->
+<div class="overlay hidden" id="name-overlay" data-page-node-id="n4m3">
+  <div class="name-panel" data-page-node-id="n4m3-p">
+    <div class="name-title" data-page-node-id="n4m3-t">给自己起个名字</div>
+    <div class="name-sub" data-page-node-id="n4m3-s">这会写进世界排行榜。违法或不雅的名字会被拦下。</div>
+    <input class="name-input" id="name-input" type="text" maxlength="16"
+           placeholder="最多 16 字" autocomplete="off" data-page-node-id="n4m3-i" />
+    <div class="name-err hidden" id="name-err" data-page-node-id="n4m3-e"></div>
+    <button class="btn btn-primary name-confirm" id="name-confirm" type="button" data-page-node-id="n4m3-b">确认</button>
+  </div>
+</div>
+
+<main id="app" class="app hidden" aria-live="polite" data-page-node-id="5VVepoVQ0o9jj7CuuLCvHN">
 
   <!-- ============ HUD ============ -->
-  <header class="hud" id="hud">
-    <div class="hud-row">
-      <div class="gauge" id="g-hp">
-        <span class="gauge-label">体力</span>
-        <span class="gauge-bar" id="hp-bar"></span>
-        <span class="gauge-num" id="hp-num">--</span>
+  <header class="hud" id="hud" data-page-node-id="CXxIwUqzklNcGkPXVobDVF">
+    <div class="hud-row" data-page-node-id="hAVOZBqC3H7MX8sj4g9QnQ">
+      <div class="gauge" id="g-hp" data-page-node-id="aii8dWwSUCSF7WFsZaO8Lt">
+        <span class="gauge-label" data-page-node-id="QXpg11dgNS3M7Bonw8h40B">生命</span>
+        <span class="gauge-bar" id="hp-bar" data-page-node-id="0NE6d28gc1pLK1Fxf5oZzw"></span>
+        <span class="gauge-num" id="hp-num" data-page-node-id="7CTkAY6wflceCMFMLcDdLS">--</span>
       </div>
-      <div class="gauge" id="g-inf">
-        <span class="gauge-label">感染</span>
-        <span class="gauge-bar" id="inf-bar"></span>
-        <span class="gauge-num" id="inf-num">--</span>
+      <div class="gauge" id="g-stam" data-page-node-id="7jGrkutQuqnF8HMuzU389s">
+        <span class="gauge-label" data-page-node-id="WF5Ilny04jeDAkuDpGyObD">体力</span>
+        <span class="gauge-bar" id="stam-bar" data-page-node-id="rwQDORXMqz5YgR7irTSuf1"></span>
+        <span class="gauge-num" id="stam-num" data-page-node-id="KNiqamcBtMyFHqJoL4OFka">--</span>
+      </div>
+      <div class="gauge" id="g-inf" data-page-node-id="A1NGwDvDThMNPZSB6GdDhw">
+        <span class="gauge-label" data-page-node-id="EqidGxH4VNWNqLeVWHGzXj">感染</span>
+        <span class="gauge-bar" id="inf-bar" data-page-node-id="He1QMCQ04k46xyj7rRtf1Q"></span>
+        <span class="gauge-num" id="inf-num" data-page-node-id="mGZkdb7HXyt44m5cE0U12G">--</span>
       </div>
     </div>
-    <div class="hud-row hud-row-meta">
-      <span class="chip" id="c-depth">-- 层</span>
-      <span class="chip" id="c-room">--</span>
-      <span class="chip" id="c-weapon">空手</span>
-      <span class="chip" id="c-ammo" title="弹药">--</span>
-      <span class="chip" id="c-noise" title="噪音">噪音 --</span>
-      <span class="chip hidden" id="c-flash" title="手电电量">电 --</span>
-      <span class="chip hidden danger" id="c-evac" title="撤离倒计时">--</span>
-      <span class="chip hidden" id="c-talent" title="本局天赋"></span>
-      <span class="chip ghost" id="c-score">0 分</span>
+    <div class="hud-row hud-row-meta" data-page-node-id="oni4Hg59dhqi394PHeVDAE">
+      <span class="chip" id="c-depth" data-page-node-id="cvq7f6ZQ47UCAd75cfpgqu">-- 层</span>
+      <span class="chip" id="c-room" data-page-node-id="HFenaiPsw44zpesNyAxTmL">--</span>
+      <span class="chip" id="c-weapon" data-page-node-id="RpZeaJo1SmvUwCX8yxIcOB">空手</span>
+      <span class="chip" id="c-ammo" title="弹药" data-page-node-id="rJeOeIsEiUhkYX9Fxw5IZj">--</span>
+      <span class="chip" id="c-cash" title="现金" data-page-node-id="cCaSh">💰 0</span>
+      <span class="chip" id="c-scrap" title="废铁" data-page-node-id="cScrAp">🧱 0</span>
+      <span class="chip" id="c-noise" title="噪音" data-page-node-id="H9UmuMm0rwPSLm7ahY0AJS">噪音 --</span>
+      <span class="chip hidden" id="c-flash" title="手电电量" data-page-node-id="Ca2aRON7AVchkqCMc10xTA">电 --</span>
+      <span class="chip hidden danger" id="c-evac" title="撤离倒计时" data-page-node-id="G5qm2VcElpc2VYWmW1BVap">--</span>
+      <span class="chip hidden" id="c-talent" title="本局天赋" data-page-node-id="s6tBLjcx1NDxgy3X01SfQD"></span>
+      <span class="chip hidden" id="c-buffs" title="当前增益" data-page-node-id="PbYfLq3x9mKd2vR8eWn7cQ"></span>
+      <span class="chip hidden" id="c-bag" title="背包容量" data-page-node-id="bagchip">🎒 包 0/10</span>
+      <span class="chip ghost" id="c-score" data-page-node-id="mgZP6huOTGvxageqqFiM01">0 分</span>
+      <button class="chip btn-world" id="btn-world" type="button" title="世界排行与事件" data-page-node-id="MITTEViCDeydI3sPmqlUnO">🏆 世界</button>
     </div>
   </header>
 
+  <!-- ============ 世界事件实时播报条 ============ -->
+  <div class="event-ticker hidden" id="event-ticker" aria-live="polite" data-page-node-id="2FvQJWUGHSMstxc3BgBP4q"></div>
+
   <!-- ============ 主文本区 ============ -->
-  <section class="term" id="term" tabindex="0">
-    <div class="term-lines" id="term-lines"></div>
+  <section class="term" id="term" tabindex="0" data-page-node-id="O7mgczbCSE7upsU6MjpxUT">
+    <div class="term-lines" id="term-lines" data-page-node-id="eDRNL7F3AYXGxTj1VpR2zp"></div>
   </section>
 
   <!-- ============ 敌人状态 ============ -->
-  <section class="enemies hidden" id="enemies"></section>
+  <section class="enemies hidden" id="enemies" data-page-node-id="JO44YAQZIWE9Cnc62q1x3P"></section>
 
   <!-- ============ 随身物品 ============
        纪念品 / 材料 / 弹药这三类不会生成操作按钮，
        所以必须有这个常驻面板，否则拿到手也看不见。 -->
-  <section class="pack" id="pack">
-    <span class="pack-label">随身</span>
-    <div class="pack-items" id="pack-items"></div>
+  <section class="pack" id="pack" data-page-node-id="QCLr3HgY7n98DEi2L4oKlz">
+    <span class="pack-label" id="pack-label" data-page-node-id="dmqypoLpBq9TOg9cuQoDjl">随身</span>
+    <div class="pack-items" id="pack-items" data-page-node-id="ASpvjI8r0WvcuLRVDnNm2d"></div>
+  </section>
+
+  <!-- ============ 商人面板 ============
+       买卖/修理/出售/作者怜悯都集中在这里，数据来自 state.merchant /
+       state.repairOptions。命令区只保留「离开商人」。 -->
+  <section class="merchant hidden" id="merchant" data-page-node-id="M3rCh4nt">
+    <div class="merchant-head" data-page-node-id="mch-head">
+      <span class="merchant-title" id="merchant-title" data-page-node-id="mch-title">商人</span>
+      <span class="merchant-note" id="merchant-note" data-page-node-id="mch-note"></span>
+    </div>
+    <div class="merchant-cols" data-page-node-id="mch-cols">
+      <div class="merchant-col" data-page-node-id="mch-shop">
+        <div class="merchant-col-title" data-page-node-id="mch-shop-t">货架</div>
+        <div class="merchant-shop" id="merchant-shop" data-page-node-id="mch-shop-l"></div>
+      </div>
+      <div class="merchant-col" data-page-node-id="mch-repair">
+        <div class="merchant-col-title" data-page-node-id="mch-rep-t">修理</div>
+        <div class="merchant-repair" id="merchant-repair" data-page-node-id="mch-rep-l"></div>
+      </div>
+      <div class="merchant-col" data-page-node-id="mch-sell">
+        <div class="merchant-col-title" data-page-node-id="mch-sell-t">出售</div>
+        <div class="merchant-sell" id="merchant-sell" data-page-node-id="mch-sell-l"></div>
+      </div>
+    </div>
   </section>
 
   <!-- ============ 命令区 ============ -->
-  <footer class="cmd" id="cmd">
-    <div class="cmd-buttons" id="cmd-buttons"></div>
-    <form class="cmd-input" id="cmd-form" autocomplete="off">
-      <span class="prompt">&gt;</span>
-      <input type="text" id="cmd-text" placeholder="输入指令，或直接点上面的按钮"
-             autocomplete="off" spellcheck="false" maxlength="60">
-      <button type="submit" class="send">执行</button>
-    </form>
+  <footer class="cmd" id="cmd" data-page-node-id="Bf1oywMCiGQdO5dTj6cx6q">
+    <div class="cmd-buttons" id="cmd-buttons" data-page-node-id="CgNPExIjvwp3lm6vPolput"></div>
+    <div class="cmd-hint" id="cmd-hint" data-page-node-id="mHqzDoKPawcpCu4ncXkEEV">
+      <span data-page-node-id="TcVOpak7vCLSiwlGEWVKNf"><kbd data-page-node-id="rFYME0SMRaYYSAdOb1EhMd">Z</kbd>·<kbd data-page-node-id="Cg5bicPcsqw2I9yNOHWRAF">X</kbd>·<kbd data-page-node-id="KOcpxOXAcjOd9wTvN4KnWh">C</kbd>·<kbd data-page-node-id="sp2AIewqWhoYTcP7Incw7u">V</kbd> 依次触发前四个按钮</span><span data-page-node-id="THrpzMoDP6hBOl8d6bx6wL"><kbd data-page-node-id="edBkQWr45xKme6cFQd4qnM">C</kbd> 也可使用物品</span>
+    </div>
   </footer>
 
-  <div class="degraded-banner hidden" id="degraded">信 号 衰 减</div>
+  <div class="degraded-banner hidden" id="degraded" data-page-node-id="5rtB0eytY7lUDuI7Vd0gMS">信 号 衰 减</div>
+
+  <!-- ============ 世界面板（排行榜 + 实时播报）============ -->
+  <div class="overlay hidden" id="world-overlay" data-page-node-id="nQoim13PXRabxlda7G7fC4">
+    <div class="world-panel" data-page-node-id="clRBhMevQ1VpuT4GFX5eGt">
+      <div class="world-head" data-page-node-id="5iKgGnUd7jfeY4P9NGPzVl">
+        <span class="world-title" data-page-node-id="qoHDeEGbU25TNUz147B5Xn">世界</span>
+        <button class="world-close" id="world-close" type="button" data-page-node-id="e8BsG1CxnxKH0UC4Dhp6Yn">✕</button>
+      </div>
+      <div class="world-tabs" data-page-node-id="7vBjIikJsizD8FXAa41bgX">
+        <button class="wtab active" data-board="score" type="button" data-page-node-id="zNQnrKGWO4RaArcYUrCYRF">分数榜</button>
+        <button class="wtab" data-board="depth" type="button" data-page-node-id="Zm8EBdC6hForsIDlmLJAB5">深度榜</button>
+        <button class="wtab" data-board="humanity" type="button" data-page-node-id="AsdIsWGFRfgfqBDAfEvFzG">人道榜</button>
+      </div>
+      <ol class="world-list" id="world-list" data-page-node-id="XnKBAXJol959FX8Nowz9NG"></ol>
+      <div class="world-events" data-page-node-id="tPMgHb3vbZIO0wXJnCoWBX">
+        <div class="world-events-title" data-page-node-id="9vrZRlEubd8jJ8vTzvPntz">实时播报</div>
+        <ul class="world-events-list" id="world-events-list" data-page-node-id="ihbsE9i7SS3QEGvgNESKwJ"></ul>
+      </div>
+    </div>
+  </div>
 </main>
 
 <script type="module" src="/static/js/main.js"></script>

@@ -38,10 +38,15 @@ async function request(path, { method = "GET", body = null } = {}) {
 
 export const api = {
   hello: (name) => request("/api/player/hello", { method: "POST", body: { name } }),
+  setName: (name) => request("/api/player/set_name", { method: "POST", body: { name } }),
   meta: () => request("/api/meta/config"),
   start: () => request("/api/run/start", { method: "POST" }),
   active: () => request("/api/run/active"),
   action: (action, payload = {}) =>
     request("/api/run/action", { method: "POST", body: { action, payload } }),
-  leaderboard: () => request("/api/run/leaderboard?limit=15"),
+  leaderboard: (by = "score") =>
+    request(`/api/run/leaderboard?by=${encodeURIComponent(by)}&limit=15`),
+  notifications: () => request("/api/notifications"),
+  markNotifications: (ids) =>
+    request("/api/notifications/read", { method: "POST", body: ids }),
 };

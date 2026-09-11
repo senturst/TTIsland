@@ -15,6 +15,7 @@ class HelloOut(BaseModel):
     player: dict[str, Any]
     active_run: dict[str, Any] | None = None
     has_legacy: bool = False
+    needs_name: bool = False
 
 
 class ActionIn(BaseModel):

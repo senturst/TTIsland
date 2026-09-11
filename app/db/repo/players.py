@@ -38,7 +38,7 @@ def get_or_create(client_id: str, device_name: str | None = None) -> dict[str, A
         name = _random_name()
         with transaction(conn):
             conn.execute(
-                "INSERT INTO players (id, name, created_at, last_seen) VALUES (?,?,?,?)",
+                "INSERT INTO players (id, name, created_at, last_seen, named) VALUES (?,?,?,?,0)",
                 (client_id, name, now, now),
             )
         row = conn.execute("SELECT * FROM players WHERE id = ?", (client_id,)).fetchone()
@@ -57,7 +57,9 @@ def rename(client_id: str, name: str) -> dict[str, Any] | None:
         return None
     with connect() as conn:
         with transaction(conn):
-            conn.execute("UPDATE players SET name = ? WHERE id = ?", (name, client_id))
+            conn.execute(
+                "UPDATE players SET name = ?, named = 1 WHERE id = ?", (name, client_id)
+            )
         row = conn.execute("SELECT * FROM players WHERE id = ?", (client_id,)).fetchone()
         return dict(row) if row else None
 

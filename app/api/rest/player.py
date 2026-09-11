@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from ...ai.name_filter import check_name
 from ...db import repo
 from ...deps import client_id_from, db_call
 from ...schemas.models import HelloIn, HelloOut
@@ -44,6 +45,8 @@ async def hello(body: HelloIn, client_id: str = Depends(client_id_from)) -> Hell
         },
         active_run=active_run,
         has_legacy=bool(legacy_row),
+        # 默认随机名（named=0）需要在开局让玩家自定名字
+        needs_name=not bool(player.get("named")),
     )
 
 
@@ -67,6 +70,25 @@ async def me(client_id: str = Depends(client_id_from)) -> dict:
 
 @router.post("/rename")
 async def rename(name: str, client_id: str = Depends(client_id_from)) -> dict:
+    """改名同样要走审核——否则玩家可用 /rename 绕过 /set_name 的过滤设任意名字。"""
+    ok, reason = await check_name(name)
+    if not ok:
+        return {"ok": False, "reason": reason}
+    player = await db_call(repo.players.rename, client_id, name)
+    if not player:
+        return {"ok": False, "reason": "玩家不存在"}
+    return {"ok": True, "name": player["name"]}
+
+
+@router.post("/set_name")
+async def set_name(name: str, client_id: str = Depends(client_id_from)) -> dict:
+    """开局自定名字：先经 DeepSeek 审核过滤违法/不雅，再落库。
+
+    审核不通过返回 {ok:false, reason}；通过则改名并标记 named=1。
+    """
+    ok, reason = await check_name(name)
+    if not ok:
+        return {"ok": False, "reason": reason}
     player = await db_call(repo.players.rename, client_id, name)
     if not player:
         return {"ok": False, "reason": "玩家不存在"}

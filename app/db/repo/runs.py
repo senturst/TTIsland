@@ -60,6 +60,15 @@ def get_active(player_id: str) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
+def list_active() -> list[dict[str, Any]]:
+    """所有存活在玩的 run（status='active'），用于管理后台查看在线玩家。"""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM runs WHERE status = 'active' ORDER BY started_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get(run_id: str) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -115,16 +124,24 @@ def finish(run_id: str, status: str, score: int, death_cause: str | None = None)
             )
 
 
-def leaderboard(limit: int = 20) -> list[dict[str, Any]]:
-    """MVP 排行榜直接读 players 表（规模 <1000 人时全表排序 <5ms）。"""
+def leaderboard(by: str = "score", limit: int = 20) -> list[dict[str, Any]]:
+    """三榜通用：by ∈ {score, depth, humanity}。
+
+    直接读 players 表（规模 <1000 人时全表排序 <5ms，无需独立榜单表）。
+    每榜只取在该维度上有成绩、且来过至少一局的玩家。
+    """
+    col = {"score": "best_score", "depth": "best_depth", "humanity": "humanity"}.get(by, "best_score")
     with connect() as conn:
         rows = conn.execute(
-            "SELECT name, best_score, best_depth, total_runs, escapes, humanity "
-            "FROM players WHERE best_score > 0 "
-            "ORDER BY best_score DESC LIMIT ?",
+            f"SELECT name, best_score, best_depth, total_runs, escapes, humanity "
+            f"FROM players WHERE total_runs > 0 AND {col} > 0 "
+            f"ORDER BY {col} DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    for r in out:
+        r["_by"] = by
+    return out
 
 
 __all__ = [

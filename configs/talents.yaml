@@ -81,6 +81,12 @@ talents:
     weight: 9
     mods: {loot_extra_roll_chance: 0.35}
 
+  - id: packrat
+    name: 背包客
+    desc: 背包容量 +5
+    weight: 7
+    mods: {bag_slots: 5}
+
   - id: hoarder
     name: 囤积癖
     desc: 开局弹药 +6

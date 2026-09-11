@@ -1,4 +1,5 @@
-@echo off
+﻿@echo off
+chcp 65001 >nul 2>&1
 REM ============================================================================
 REM  本地开发服务器启动脚本（Windows）
 REM
@@ -37,9 +38,9 @@ REM  --reload 只用于 Python 代码。配置（configs\*.yaml 与提示词）�
 REM   数值改动即时生效，破坏性变更（删除 ID）会被拦截并要求重启，
 REM   比进程级重启更安全——不会丢掉正在进行的一局。
 if "%1"=="--no-reload" (
-    ".venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port %PORT% --log-level info
+    ".venv\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port %PORT% --log-level info
 ) else (
-    ".venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port %PORT% --log-level info --reload --reload-dir app
+    ".venv\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port %PORT% --log-level info --reload --reload-dir app
 )
 
 endlocal

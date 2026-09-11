@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS players (
     total_kills  INTEGER NOT NULL DEFAULT 0,
     escapes      INTEGER NOT NULL DEFAULT 0,
     humanity     INTEGER NOT NULL DEFAULT 0,
-    legacy_item  TEXT                          -- 遗物 JSON: {id, durability}
+    legacy_item  TEXT,                         -- 遗物 JSON: {id, durability}
+    named        INTEGER NOT NULL DEFAULT 0    -- 0=默认随机名，1=玩家自定名
 );
 CREATE INDEX IF NOT EXISTS idx_players_score ON players(best_score DESC);
 
@@ -74,6 +75,18 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_time ON chat_messages(channel, created_at DESC);
+
+-- 私人回执：墓碑被别人摸走时通知原主人（P4）。与公开的世界播报（SSE）分开存。
+CREATE TABLE IF NOT EXISTS notifications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id   TEXT NOT NULL,
+    kind        TEXT NOT NULL,            -- grave_looted | system
+    body        TEXT NOT NULL,
+    data_json   TEXT NOT NULL DEFAULT '{}',
+    created_at  INTEGER NOT NULL,
+    read        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_notif_player ON notifications(player_id, read, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_graves_pick   ON graves(claim_count, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_graves_player ON graves(player_id, created_at DESC);

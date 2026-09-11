@@ -12,3 +12,6 @@ data/
 logs/
 *.log
 .workbuddy/
+
+# 管理后台登录令牌（含明文口令，禁止提交）
+configs/admin.yaml

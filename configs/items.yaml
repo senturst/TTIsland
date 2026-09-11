@@ -8,6 +8,9 @@
 #   noise      —— 噪音来源键，null 表示近战不产生噪音
 #   ammo_per_shot / ammo_type —— 枪械消耗
 #   durability —— 近战武器可用次数，归零后伤害 ×broken_weapon_mult
+#   aoe        —— 远程全体攻击（对每个敌人单独结算伤害与闪避）。霰弹枪类专用。
+#
+# value       —— 价值属性（货币结算用）：商人回收/出售价、装备价值展示都基于它
 # ============================================================================
 
 weapons:
@@ -23,6 +26,7 @@ weapons:
     pry: true
     weight: 30
     tier: 1
+    value: 8
     desc_ai: true
 
   - id: fire_axe
@@ -37,6 +41,7 @@ weapons:
     pry: true
     weight: 10
     tier: 3
+    value: 25
     desc_ai: true
 
   - id: machete
@@ -50,6 +55,7 @@ weapons:
     durability: 18
     weight: 14
     tier: 1
+    value: 10
     desc_ai: true
 
   - id: pistol_m9
@@ -64,6 +70,7 @@ weapons:
     ammo_per_shot: 1
     weight: 12
     tier: 2
+    value: 18
     desc_ai: true
 
   - id: shotgun
@@ -76,8 +83,10 @@ weapons:
     noise_key: gunshot
     ammo_type: ammo_shotgun
     ammo_per_shot: 2
+    aoe: true                 # 全体攻击：一次消耗 2 发，对每只怪单独结算
     weight: 7
     tier: 3
+    value: 28
     desc_ai: true
 
   - id: silenced_smg
@@ -92,7 +101,107 @@ weapons:
     ammo_per_shot: 3
     weight: 5
     tier: 2
+    value: 16
     desc_ai: true
+
+  # ---- 新增近战（多为 tier1，长矛 tier2）----
+  - id: bat
+    name: 棒球棍
+    icon: "⚾"
+    kind: melee
+    dmg: [5, 8]
+    acc_mod: +3
+    crit: 0.08
+    noise: 0
+    durability: 22
+    weight: 12
+    tier: 1
+    value: 6
+    desc_ai: false
+  - id: wrench
+    name: 活动扳手
+    icon: "🔧"
+    kind: melee
+    dmg: [5, 9]
+    acc_mod: -2
+    crit: 0.05
+    noise: 0
+    durability: 24
+    pry: true
+    weight: 8
+    tier: 1
+    value: 6
+    desc_ai: false
+  - id: knife
+    name: 匕首
+    icon: "🔪"
+    kind: melee
+    dmg: [4, 7]
+    acc_mod: +8
+    crit: 0.18
+    noise: 0
+    durability: 15
+    weight: 6
+    tier: 1
+    value: 8
+    desc_ai: false
+  - id: cleaver
+    name: 剁骨刀
+    icon: "🔪"
+    kind: melee
+    dmg: [6, 10]
+    acc_mod: 0
+    crit: 0.10
+    noise: 0
+    durability: 16
+    weight: 9
+    tier: 1
+    value: 9
+    desc_ai: false
+  - id: spear
+    name: 长矛
+    icon: "🔱"
+    kind: melee
+    dmg: [7, 11]
+    acc_mod: +2
+    crit: 0.08
+    noise: 0
+    durability: 20
+    weight: 7
+    tier: 2
+    value: 12
+    desc_ai: false
+
+  # ---- 新增远程（复用现有弹药；无耐久，靠弹药与噪音平衡）----
+  - id: nail_gun
+    name: 钉枪
+    icon: "🔫"
+    kind: ranged
+    dmg: [5, 8]
+    acc_mod: +4
+    crit: 0.10
+    noise_key: silenced
+    ammo_type: ammo_pistol
+    ammo_per_shot: 1
+    weight: 8
+    tier: 1
+    value: 7
+    desc_ai: false
+  - id: double_barrel
+    name: 双管霰弹
+    icon: "🔫"
+    kind: ranged
+    dmg: [14, 20]
+    acc_mod: -8
+    crit: 0.15
+    noise_key: gunshot
+    ammo_type: ammo_shotgun
+    ammo_per_shot: 2
+    aoe: true                 # 全体攻击：一次消耗 2 发，对每只怪单独结算
+    weight: 6
+    tier: 2
+    value: 16
+    desc_ai: false
 
 ammo:
   - id: ammo_pistol
@@ -100,16 +209,19 @@ ammo:
     icon: "🔩"
     qty: [3, 6]
     weight: 35
+    value: 3
   - id: ammo_shotgun
     name: 霰弹
     icon: "🔩"
     qty: [2, 4]
     weight: 20
+    value: 5
   - id: ammo_smg
     name: 冲锋枪弹
     icon: "🔩"
     qty: [4, 8]
     weight: 25
+    value: 4
 
 consumables:
   - id: bandage
@@ -118,12 +230,14 @@ consumables:
     heal: [8, 13]
     infection: -5
     weight: 25
+    value: 4
     desc_ai: false
   - id: antibiotic
     name: 抗生素
     icon: "💊"
     infection: -25
     weight: 6
+    value: 10
     desc_ai: false
     # 稀有：只在医疗掉落表出现
     rare: true
@@ -133,29 +247,85 @@ consumables:
     heal_stamina: 8
     infection: -2
     weight: 25
+    value: 3
+    desc_ai: false
   - id: clean_water
     name: 净水
     icon: "💧"
     infection: -5
     weight: 18
+    value: 3
+    desc_ai: false
   - id: vodka
     name: 伏特加
     icon: "🍺"
     buff: {acc: +10, taken_dmg: -2, turns: 5}
     infection: +3
     weight: 8
+    value: 5
     desc_ai: true
   - id: battery
     name: 电池
     icon: "🔋"
     flashlight: +30
     weight: 10
+    value: 4
+    desc_ai: false
+  - id: medkit
+    name: 医疗包
+    icon: "🩹"
+    heal: [20, 28]
+    infection: -5
+    weight: 8
+    value: 12
+    desc_ai: false
+  - id: painkiller
+    name: 止痛药
+    icon: "💊"
+    heal: [6, 10]
+    acc: +8
+    infection: +1
+    weight: 5
+    value: 6
+    desc_ai: false
+  - id: disinfectant
+    name: 消毒水
+    icon: "🧴"
+    infection: -15
+    weight: 6
+    value: 5
+    desc_ai: false
+  - id: energy_drink
+    name: 能量饮料
+    icon: "🥤"
+    heal_stamina: 15
+    infection: -2
+    weight: 6
+    value: 4
+    desc_ai: false
 
 materials:
   - id: scrap
     name: 废铁
     icon: "🧱"
     weight: 10
+    value: 2
+  - id: duct_tape
+    name: 胶带
+    icon: "🧻"
+    weight: 8
+    value: 3
+  - id: alcohol
+    name: 酒精
+    icon: "🍶"
+    weight: 7
+    value: 2
+  - id: cash
+    name: 现金
+    icon: "💰"
+    weight: 1
+    value: 1                # 货币本身：1 单位 = 1 现金；不参与出售、不继承
+    desc_ai: false
 
 armor:
   - id: leather_jacket
@@ -163,33 +333,95 @@ armor:
     icon: "🧥"
     armor: 2
     eva: -5
+    pockets: 1
+    durability: 30          # 吸伤转耐久损耗；耗尽后失去吸伤
     weight: 12
     tier: 1
+    value: 12
   - id: riot_gear
     name: 防暴服
     icon: "🦺"
     armor: 5
     eva: -15
     noise_mod: +1
+    durability: 45
     weight: 5
     tier: 2
+    value: 22
+  - id: tactical_vest
+    name: 战术背心
+    icon: "🦺"
+    armor: 4
+    eva: -8
+    noise_mod: +1
+    pockets: 2
+    durability: 40
+    weight: 6
+    tier: 2
+    value: 18
+    desc_ai: false
+  - id: bike_helmet
+    name: 自行车头盔
+    icon: "⛑️"
+    armor: 1
+    eva: +2
+    pockets: 1
+    durability: 25
+    weight: 10
+    tier: 1
+    value: 8
+    desc_ai: false
 
 trinkets:
   - id: wedding_ring
     name: 婚戒
     icon: "💍"
     score: 15
+    weight: 12
+    value: 20
     desc_ai: true
   - id: dog_tag
     name: 身份牌
     icon: "🪪"
     score: 15
+    weight: 12
+    value: 20
     desc_ai: true
   - id: photo
     name: 全家福
     icon: "📷"
     score: 15
+    weight: 12
+    value: 20
     desc_ai: true
 
-# 消耗品不可作为遗物继承
-legacy_exclude_kinds: [consumables, ammo]
+backpacks:
+  # slots = 装入背包后「额外」增加的容量格数（基础 10 格由 balance.player.bag_slots 提供）。
+  # 背包属于装备：可在随身面板点击装备，也能从商人处购买，还可作为遗物继承。
+  - id: small_pack
+    name: 帆布背包
+    icon: "🎒"
+    slots: 4
+    weight: 8
+    tier: 1
+    value: 10
+    desc_ai: false
+  - id: hiking_pack
+    name: 登山包
+    icon: "🎒"
+    slots: 6
+    weight: 6
+    tier: 1
+    value: 14
+    desc_ai: false
+  - id: large_pack
+    name: 战术背包
+    icon: "🎒"
+    slots: 8
+    weight: 5
+    tier: 2
+    value: 18
+    desc_ai: false
+
+# 消耗品不可作为遗物继承；现金是局内货币，同样不继承。
+legacy_exclude_kinds: [consumables, ammo, cash]
