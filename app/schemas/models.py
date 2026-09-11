@@ -10,6 +10,12 @@ class HelloIn(BaseModel):
     name: str | None = None
 
 
+class NameIn(BaseModel):
+    """开局命名/改名请求体。裸 `name: str` 参数会被 FastAPI 当 query 参数，
+    而前端发的是 JSON body，导致 422 Field required。"""
+    name: str
+
+
 class HelloOut(BaseModel):
     client_id: str
     player: dict[str, Any]

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from ...ai.name_filter import check_name
 from ...db import repo
 from ...deps import client_id_from, db_call
-from ...schemas.models import HelloIn, HelloOut
+from ...schemas.models import HelloIn, HelloOut, NameIn
 
 router = APIRouter(prefix="/api/player", tags=["player"])
 
@@ -69,27 +69,27 @@ async def me(client_id: str = Depends(client_id_from)) -> dict:
 
 
 @router.post("/rename")
-async def rename(name: str, client_id: str = Depends(client_id_from)) -> dict:
+async def rename(body: NameIn, client_id: str = Depends(client_id_from)) -> dict:
     """改名同样要走审核——否则玩家可用 /rename 绕过 /set_name 的过滤设任意名字。"""
-    ok, reason = await check_name(name)
+    ok, reason = await check_name(body.name)
     if not ok:
         return {"ok": False, "reason": reason}
-    player = await db_call(repo.players.rename, client_id, name)
+    player = await db_call(repo.players.rename, client_id, body.name)
     if not player:
         return {"ok": False, "reason": "玩家不存在"}
     return {"ok": True, "name": player["name"]}
 
 
 @router.post("/set_name")
-async def set_name(name: str, client_id: str = Depends(client_id_from)) -> dict:
+async def set_name(body: NameIn, client_id: str = Depends(client_id_from)) -> dict:
     """开局自定名字：先经 DeepSeek 审核过滤违法/不雅，再落库。
 
     审核不通过返回 {ok:false, reason}；通过则改名并标记 named=1。
     """
-    ok, reason = await check_name(name)
+    ok, reason = await check_name(body.name)
     if not ok:
         return {"ok": False, "reason": reason}
-    player = await db_call(repo.players.rename, client_id, name)
+    player = await db_call(repo.players.rename, client_id, body.name)
     if not player:
         return {"ok": False, "reason": "玩家不存在"}
     return {"ok": True, "name": player["name"]}

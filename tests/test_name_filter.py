@@ -46,10 +46,10 @@ def test_set_name_flow_and_local_filter():
         body = r.json()
         assert body["needs_name"] is True, "默认随机名应 needs_name"
 
-        bad = client.post("/api/player/set_name", params={"name": ""}, headers=headers)
+        bad = client.post("/api/player/set_name", json={"name": ""}, headers=headers)
         assert bad.status_code == 200 and bad.json()["ok"] is False, "空名应被拒"
 
-        good = client.post("/api/player/set_name", params={"name": "孤岛老王"}, headers=headers)
+        good = client.post("/api/player/set_name", json={"name": "孤岛老王"}, headers=headers)
         assert good.status_code == 200 and good.json()["ok"] is True
         assert good.json()["name"] == "孤岛老王"
 
