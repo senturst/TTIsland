@@ -20,6 +20,9 @@ async def hello(body: HelloIn, client_id: str = Depends(client_id_from)) -> Hell
     """认领身份。已有则续用，没有则分配随机幸存者名。"""
     player = await db_call(repo.players.get_or_create, client_id)
 
+    # 懒式挂机清理：6 小时无活动的 run 在这里被收掉（全服一次性扫描）
+    await db_call(repo.runs.expire_stale)
+
     active = await db_call(repo.runs.get_active, client_id)
     active_run = None
     if active:

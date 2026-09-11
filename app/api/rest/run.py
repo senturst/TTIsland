@@ -239,6 +239,9 @@ async def start(client_id: str = Depends(client_id_from)) -> Any:
     rate_start(client_id)
     cfg = get_config()
 
+    # 懒式挂机清理：开新局前先把全服超时 run 收掉（本玩家的旧局也会被一并处理）
+    await db_call(repo.runs.expire_stale)
+
     existing = await db_call(repo.runs.get_active, client_id)
     if existing:
         est = await db_call(repo.runs.load_state, existing)
@@ -287,6 +290,8 @@ async def start(client_id: str = Depends(client_id_from)) -> Any:
 @router.get("/active")
 async def active(client_id: str = Depends(client_id_from)) -> Any:
     """续玩：拉回当前 run 的完整画面。"""
+    # 懒式挂机清理：若这个 run 已超时被收掉，get_active 就拿不到了——前端自然走"开新局"
+    await db_call(repo.runs.expire_stale)
     row = await db_call(repo.runs.get_active, client_id)
     if not row:
         return {"active": False}

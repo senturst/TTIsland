@@ -40,12 +40,14 @@ CREATE TABLE IF NOT EXISTS runs (
     flashlight   INTEGER,
     state_json   TEXT NOT NULL,
     started_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL DEFAULT 0,   -- 最后一次动作时间（挂机清理依据）
     ended_at     INTEGER,
     death_cause  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_player ON runs(player_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_active ON runs(status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_runs_score  ON runs(score DESC) WHERE status != 'active';
+CREATE INDEX IF NOT EXISTS idx_runs_updated ON runs(updated_at) WHERE status = 'active';
 
 -- 死亡墓碑：P4 异步交织的数据源。
 -- 首批单机闭环阶段就会写入（死亡即产生），但尚不注入他人地图。

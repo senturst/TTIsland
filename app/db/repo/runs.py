@@ -26,8 +26,8 @@ def create(player_id: str, seed: int, state: dict) -> str:
                 """
                 INSERT INTO runs (id, player_id, seed, status, depth, turn, score, kills,
                                   hp, hp_max, infection, noise, ammo, flashlight,
-                                  state_json, started_at)
-                VALUES (?,?,?, 'active',?,?,?,?,?,?,?,?,?,?,?,?)
+                                  state_json, started_at, updated_at)
+                VALUES (?,?,?, 'active',?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run_id,
@@ -45,6 +45,7 @@ def create(player_id: str, seed: int, state: dict) -> str:
                     state.get("flashlight"),
                     json.dumps(state, ensure_ascii=False),
                     now,
+                    now,  # updated_at
                 ),
             )
     return run_id
@@ -69,6 +70,26 @@ def list_active() -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def expire_stale(max_idle_seconds: int = 6 * 3600) -> int:
+    """挂机清理：把超过 max_idle_seconds 没有任何动作的 active run 置为 abandoned。
+
+    「活动」以 updated_at（最后一次 save，即最后一次 action）为准，
+    不是 started_at——开局后挂机的玩家也会被正确清掉。
+    在 hello / active / start 时懒式触发，无需后台定时器。
+    返回本次清理的数量。
+    """
+    cutoff = int(time.time()) - max_idle_seconds
+    with connect() as conn:
+        with transaction(conn):
+            cur = conn.execute(
+                "UPDATE runs SET status = 'abandoned', ended_at = ?, "
+                "death_cause = '与应急频段失去了联系' "
+                "WHERE status = 'active' AND updated_at < ?",
+                (int(time.time()), cutoff),
+            )
+            return cur.rowcount
+
+
 def get(run_id: str) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -88,7 +109,7 @@ def save(run_id: str, state: dict, **extra: Any) -> None:
                 UPDATE runs SET
                     depth = ?, turn = ?, score = ?, kills = ?,
                     hp = ?, hp_max = ?, infection = ?, noise = ?,
-                    ammo = ?, flashlight = ?, state_json = ?
+                    ammo = ?, flashlight = ?, state_json = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -103,6 +124,7 @@ def save(run_id: str, state: dict, **extra: Any) -> None:
                     state.get("ammo_total", 0),
                     state.get("flashlight"),
                     json.dumps(state, ensure_ascii=False),
+                    int(time.time()),
                     run_id,
                 ),
             )
@@ -146,5 +168,5 @@ def leaderboard(by: str = "score", limit: int = 20) -> list[dict[str, Any]]:
 
 __all__ = [
     "create", "get_active", "get", "load_state", "save", "finish",
-    "leaderboard", "new_run_id",
+    "leaderboard", "new_run_id", "list_active", "expire_stale",
 ]

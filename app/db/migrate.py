@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .pool import connect, db_path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
@@ -49,6 +49,12 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
     # v4：玩家自定名标记（开局让玩家输入名字；默认随机名需提示）
     (4, [
         "ALTER TABLE players ADD COLUMN named INTEGER NOT NULL DEFAULT 0",
+    ]),
+    # v5：runs.updated_at —— 挂机清理用「最后活动时间」判断，而非 started_at
+    (5, [
+        "ALTER TABLE runs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        "UPDATE runs SET updated_at = COALESCE(ended_at, started_at)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_updated ON runs(updated_at) WHERE status = 'active'",
     ]),
 ]
 
