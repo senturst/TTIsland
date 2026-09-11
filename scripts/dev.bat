@@ -16,6 +16,9 @@ setlocal
 set PORT=8000
 set ROOT=%~dp0..
 cd /d "%ROOT%"
+REM 显式把项目根加入 PYTHONPATH，确保 `python -c "from app..."` 与
+REM `python -m uvicorn` 能稳定导入 app 包（不依赖 cwd / PYTHONSAFEPATH）
+set "PYTHONPATH=%ROOT%"
 
 echo [1/3] Freeing port %PORT% ...
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":%PORT% " ^| findstr LISTENING') do (
@@ -25,7 +28,7 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":%PORT% " ^| findstr LISTENI
 timeout /t 1 /nobreak >nul
 
 echo [2/3] Checking config and database ...
-".venv\Scripts\python.exe" -c "from app.data.loader import get_config; get_config(); from app.db import migrate; migrate.apply_migrations(); migrate.init_llm_cache_db(); print('       OK')"
+".venv\Scripts\python.exe" -c "import sys; sys.path.insert(0, r'%ROOT%'); from app.data.loader import get_config; get_config(); from app.db import migrate; migrate.apply_migrations(); migrate.init_llm_cache_db(); print('       OK')"
 if errorlevel 1 (
     echo       Config check failed; startup aborted. Fix configs\ and retry.
     pause

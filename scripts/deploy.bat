@@ -21,6 +21,9 @@ setlocal
 
 set "ROOT=%~dp0.."
 cd /d "%ROOT%"
+REM 显式把项目根加入 PYTHONPATH：restart.py 内部的 `python -c` 配置校验
+REM 与 `python -m uvicorn` 都会继承此变量，确保稳定导入 app 包
+set "PYTHONPATH=%ROOT%"
 set "PY=%ROOT%\.venv\Scripts\python.exe"
 if not defined PORT set "PORT=8000"
 

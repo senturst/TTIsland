@@ -93,7 +93,11 @@ def preflight() -> bool:
     py = ROOT / ".venv" / "Scripts" / "python.exe"
     if not py.exists():
         py = ROOT / ".venv" / "bin" / "python"
+    # 关键：把项目根显式插到 sys.path 最前面，避免依赖 cwd 或 PYTHONPATH
+    # （部署环境 cwd 可能不在项目根，或被 PYTHONSAFEPATH 剔除，导致
+    #  `from app...` 报 ModuleNotFoundError: No module named 'app.data'）
     code = "\n".join([
+        f"import sys; sys.path.insert(0, {str(ROOT)!r})",
         "from app.data.loader import get_config",
         "from app.db import migrate",
         "c = get_config()",
@@ -103,7 +107,9 @@ def preflight() -> bool:
         "print('      配置 OK：%d 物品 / %d 怪物 / %d 天赋 / %d 层'",
         "      % (len(c.items), len(c.monsters), n, c.max_level))",
     ])
-    r = subprocess.run([str(py), "-c", code], cwd=ROOT, capture_output=True)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    r = subprocess.run([str(py), "-c", code], cwd=ROOT, capture_output=True, env=env)
     out = r.stdout.decode("utf-8", "replace").strip()
     err = r.stderr.decode("utf-8", "replace").strip()
     if r.returncode != 0:
