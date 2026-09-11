@@ -1658,11 +1658,25 @@ class RunEngine:
             float(rcfg.get("cash_per_point", 0.5)),
         ), bonus
 
-    def _do_repair(self, iid: str, pay: str) -> tuple[bool, str]:
-        """用废铁或现金修理一件装备，每次修「一点」耐久。
+    @staticmethod
+    def _repair_click(per: float) -> tuple[int, int]:
+        """把「每点耐久单价」换算成一次点击的 (消耗, 修几点)。
 
-        pay ∈ {"scrap","cash"}。每修 1 点耐久耗 scrap_per_point / cash_per_point
-        单位资源，向上取整；天赋 repair_bonus 可让一次修多几点。
+        用户的口径：1 废料 = 修 3 点耐久（0.3/点，0.1 余数舍弃）。
+        即单价 ≤1 时一次消耗 1 份资源、修 floor(1/per) 点，不足一整点的零头浪费；
+        单价 >1 时维持旧的向上取整（1 点耗 ceil(per) 份）。
+        """
+        if per <= 0:
+            return 1, 1
+        if per <= 1.0:
+            return 1, max(1, int(1 / per))
+        return math.ceil(per), 1
+
+    def _do_repair(self, iid: str, pay: str) -> tuple[bool, str]:
+        """用废铁或现金修理一件装备，每次点击消耗 1 份资源、修 floor(1/per) 点耐久。
+
+        pay ∈ {"scrap","cash"}。1 废料可修 3 点耐久（0.3/点，余数舍弃）；
+        1 现金修 2 点（0.5/点）。天赋 repair_bonus 让一次多修几点。
         玩家可以反复点，一点一点把武器修满——不再强制一次修到满。
         非商人区域也可用（前端从随身面板对废料装备发起，走同一入口）。
         """
@@ -1678,37 +1692,33 @@ class RunEngine:
         else:
             per, cur_res, res_name = cash_per, loot.count(st, "cash"), "现金"
 
-        # 这次修几点：基础 1 点 + 天赋奖励；不超过缺失量
+        # 这次修几点：整份资源的换算点数 + 天赋奖励；不超过缺失量（零头浪费）
         missing = maxd - cur
-        points = max(1, 1 + int(bonus)) if bonus > 0 else 1
-        points = min(points, missing)
-        cost = math.ceil(points * per)
-        if cur_res < cost:
+        base_cost, base_points = self._repair_click(per)
+        cost = base_cost
+        points = min(base_points + int(bonus), missing)
+        if cur_res < cost or points <= 0:
             return False, (
-                f"{res_name}不够——修 1 点耐久要 {math.ceil(per)} {res_name}"
+                f"{res_name}不够——修 1 次要 {cost} {res_name}"
                 f"（你只有 {cur_res}）。"
             )
         loot.remove(st, "scrap" if pay == "scrap" else "cash", cost)
         obj["durability"] = cur + points
-        if points > 1:
-            return True, (
-                f"你用 {cost} {res_name} 把{cfg.item(wid)['name']}修了 {points} 点耐久"
-                f"（{cur}→{cur + points}）。"
-            )
         return True, (
-            f"你用 {cost} {res_name} 把{cfg.item(wid)['name']}修了 1 点耐久"
-            f"（{cur}→{cur + 1}）。"
+            f"你用 {cost} {res_name} 把{cfg.item(wid)['name']}修了 {points} 点耐久"
+            f"（{cur}→{cur + points}）。"
         )
 
     def _repair_options(self) -> list[dict]:
         """列出当前可修理的装备（近战武器 / 护甲），含废料与现金两种单价。
 
-        每次修理只修一点（向上取整）。前端据此渲染修理按钮并展示换算比例，
-        无需自己读配置算价。
+        每次点击消耗 1 份资源、修 floor(1/per) 点（1 废料 = 3 点，余数舍弃）。
+        前端据此渲染修理按钮并展示换算比例，无需自己读配置算价。
         """
         cfg = self.cfg
         (scrap_per, cash_per), _bonus = self._repair_rates()
-        scrap_tip = math.ceil(scrap_per)  # 1 废料能修多少点：向下兼容的展示口径
+        scrap_cost, scrap_pts = self._repair_click(scrap_per)
+        cash_cost, cash_pts = self._repair_click(cash_per)
         out: list[dict] = []
         # 当前装备优先，再扫背包里的武器/护甲
         candidates = []
@@ -1731,21 +1741,24 @@ class RunEngine:
                     "kind": cfg.item_kind(iid),
                     "max": maxd,
                     "cur": cur,
-                    # 每次修 1 点的单价（向上取整）
-                    "scrap_cost": math.ceil(scrap_per),
-                    "cash_cost": math.ceil(cash_per),
-                    # 换算提示：1 废料可修的耐久点数（向上取整口径下 ≥1）
-                    "scrap_points": max(1, int(1 / scrap_per)) if scrap_per > 0 else 1,
-                    "cash_points": max(1, int(1 / cash_per)) if cash_per > 0 else 1,
+                    # 每次点击的（消耗, 修几点）：1 废料修 3 点，1 现金修 2 点
+                    "scrap_cost": scrap_cost,
+                    "cash_cost": cash_cost,
+                    "scrap_points": scrap_pts,
+                    "cash_points": cash_pts,
                 })
         return out
 
     def _repair_rate_hints(self) -> dict:
-        """修理换算的展示口径：修 1 点耐久各资源的单价（向上取整）。"""
+        """修理换算的展示口径：每次点击消耗多少资源、可修几点（零头舍弃）。"""
         (scrap_per, cash_per), _bonus = self._repair_rates()
+        scrap_cost, scrap_pts = self._repair_click(scrap_per)
+        cash_cost, cash_pts = self._repair_click(cash_per)
         return {
-            "scrap_per_point": math.ceil(scrap_per),
-            "cash_per_point": math.ceil(cash_per),
+            "scrap_cost": scrap_cost,
+            "cash_cost": cash_cost,
+            "scrap_points": scrap_pts,
+            "cash_points": cash_pts,
         }
 
     async def _act_merchant(self, payload: dict) -> None:

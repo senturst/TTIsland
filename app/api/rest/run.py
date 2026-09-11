@@ -146,6 +146,21 @@ async def _finalize(client_id: str, run_id: str, engine: RunEngine) -> None:
         humanity_delta=int(st.get("humanity", 0)),
     )
 
+    # 地区进度（P6.2.1）：从地区 N 的撤离点撤离成功 → 解锁地区 N+1
+    if escaped:
+        region = cfg.region_for_level(depth)
+        rid = int(region["id"])
+        prev_region = int(pre.get("region_progress", 0) or 0)
+        if rid > prev_region:
+            await db_call(repo.players.record_region_clear, client_id, rid)
+            if rid + 1 in cfg.regions:
+                nxt = cfg.regions[rid + 1]
+                _emit_event(
+                    "record",
+                    f"{player} 突破了{region['name']}——新的地区「{nxt['name']}」已经解锁！",
+                    player=player, region=rid + 1,
+                )
+
     # 遗物继承（软 Roguelite）
     # earned_by 决定下一局拿到的是"保养过的"还是"从尸体上扒下来的"
     legacy = st.get("chosen_legacy")

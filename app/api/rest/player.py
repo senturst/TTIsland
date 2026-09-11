@@ -45,6 +45,7 @@ async def hello(body: HelloIn, client_id: str = Depends(client_id_from)) -> Hell
             "total_kills": player["total_kills"],
             "escapes": player["escapes"],
             "humanity": player["humanity"],
+            "region_progress": player.get("region_progress", 0),
         },
         active_run=active_run,
         has_legacy=bool(legacy_row),
@@ -67,6 +68,7 @@ async def me(client_id: str = Depends(client_id_from)) -> dict:
         "total_kills": player["total_kills"],
         "escapes": player["escapes"],
         "humanity": player["humanity"],
+        "region_progress": player.get("region_progress", 0),
         "legacy": player["legacy_item"],
     }
 

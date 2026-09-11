@@ -64,11 +64,12 @@ def test_merchant_repair_consumes_scrap_and_restores_durability():
 
         after = loot.count(eng.state, "scrap")
         assert after < before, "修复应当消耗废料"
-        # 逐点修：每次修 1 点（向上取整单价）
+        # 每次消耗 1 废料修 floor(1/0.3)=3 点耐久（余数舍弃）
         per = float(cfg.balance["merchant"]["repair"]["scrap_per_point"])
-        assert eng.state["weapon"]["durability"] == 6, \
-            f"一次修理应只修 1 点耐久（5→6），实际 {eng.state['weapon']['durability']}"
-        assert after == before - math.ceil(per), "应消耗 ceil(scrap_per_point) 个废料"
+        pts = int(1 / per) if per > 0 else 1
+        assert eng.state["weapon"]["durability"] == 5 + pts, \
+            f"一次修理应修 {pts} 点耐久（5→{5 + pts}），实际 {eng.state['weapon']['durability']}"
+        assert after == before - 1, "应只消耗 1 个废料"
         assert any("废料" in line for line in eng._out), eng._out
 
         # 连续修可以逐步修满，不再降低耐久上限
@@ -475,7 +476,9 @@ def test_field_repair_outside_merchant():
         eng.state["in_combat"] = False
 
         await eng.act("repair", {"item": eng.state["weapon"]["id"], "pay": "scrap"})
-        assert eng.state["weapon"]["durability"] == 6, "非商人区修理应修 1 点"
+        per = float(cfg.balance["merchant"]["repair"]["scrap_per_point"])
+        pts = int(1 / per) if per > 0 else 1
+        assert eng.state["weapon"]["durability"] == 5 + pts, "非商人区修理应消耗 1 废料修 3 点"
 
         # 战斗中拒绝
         eng.state["in_combat"] = True

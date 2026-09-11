@@ -15,6 +15,7 @@ export const state = {
   noise: 0, horde: false,
   flashlight: null,
   depth: 1, maxDepth: 5,
+  regionProgress: 0, regionUnlocked: 1,  // 已通关地区 / 已解锁地区
   turn: 0, kills: 0, score: 0,
   evacCountdown: null,
   weapon: null,
@@ -99,6 +100,7 @@ export function applyServerState(data) {
       inventory: st.inventory ?? s.inventory,
       merchant: st.merchant ?? s.merchant,
       repairOptions: st.repair_options ?? s.repairOptions,
+      repairRates: st.repair_rates ?? s.repairRates,
       room: st.room ?? s.room,
       exits: st.exits ?? s.exits,
       inCombat: !!st.in_combat,

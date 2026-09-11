@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS players (
     escapes      INTEGER NOT NULL DEFAULT 0,
     humanity     INTEGER NOT NULL DEFAULT 0,
     legacy_item  TEXT,                         -- 遗物 JSON: {id, durability}
-    named        INTEGER NOT NULL DEFAULT 0    -- 0=默认随机名，1=玩家自定名
+    named        INTEGER NOT NULL DEFAULT 0,   -- 0=默认随机名，1=玩家自定名
+    region_progress INTEGER NOT NULL DEFAULT 0 -- 已从哪个地区撤离过（0=尚未通关；地区N通关=N）
 );
 CREATE INDEX IF NOT EXISTS idx_players_score ON players(best_score DESC);
 

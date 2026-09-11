@@ -115,6 +115,25 @@ def record_run_end(
             )
 
 
+def get_region_progress(client_id: str) -> int:
+    """玩家已从哪个地区撤离过（0=尚未通关任何地区）。"""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT region_progress FROM players WHERE id = ?", (client_id,)
+        ).fetchone()
+        return int(row["region_progress"] or 0) if row else 0
+
+
+def record_region_clear(client_id: str, region_id: int) -> None:
+    """从地区 region_id 撤离成功：进度只升不降（MAX 覆盖）。"""
+    with connect() as conn:
+        with transaction(conn):
+            conn.execute(
+                "UPDATE players SET region_progress = MAX(region_progress, ?) WHERE id = ?",
+                (int(region_id), client_id),
+            )
+
+
 __all__ = [
     "get_or_create",
     "get",
@@ -122,5 +141,7 @@ __all__ = [
     "get_legacy",
     "set_legacy",
     "record_run_end",
+    "get_region_progress",
+    "record_region_clear",
     "new_seed",
 ]

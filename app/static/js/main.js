@@ -348,6 +348,10 @@ async function boot() {
       s.meta = meta;
       s.maxDepth = meta.max_level;
       s.icons = { ...(meta.items || {}), ...(meta.monsters || {}) };
+      // 地区进度：已从哪个地区撤离过 → 解锁到哪个地区
+      const rp = hello.player?.region_progress ?? 0;
+      s.regionProgress = rp;
+      s.regionUnlocked = Math.min(rp + 1, Object.keys(meta.regions || {}).length || 1);
     });
 
     document.getElementById("boot").classList.add("hidden");

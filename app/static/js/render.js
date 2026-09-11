@@ -94,9 +94,14 @@ export function renderHUD() {
   }
   setText("stam-num", `${stam}/${stamMax}`);
 
-  // 层
+  // 层（带当前层所属地区名：从 meta.regions 的 levels 反查）
   const lvlIcon = iconFor("_level") || "📍";
-  setHTML("c-depth", `${iconOf(lvlIcon)} 第 ${s.depth} / ${s.maxDepth} 层`);
+  let region = null;
+  for (const r of Object.values(s.meta?.regions || {})) {
+    if ((r.levels || []).includes(s.depth)) { region = r; break; }
+  }
+  const regionTag = region ? `${region.icon || ""} ${region.name} · ` : "";
+  setHTML("c-depth", `${iconOf(lvlIcon)} ${regionTag}第 ${s.depth} / ${s.maxDepth} 层`);
 
   // 房间
   setText("c-room", s.room?.name ? `${s.room.name}` : "");
@@ -254,9 +259,10 @@ export function renderPack(onAction) {
     return;
   }
 
-  // 修理换算（服务端下发）：修 1 点耐久各资源的单价
+  // 修理换算（服务端下发）：每次点击消耗多少资源、可修几点（1 废料修 3 点）
   const rates = state.repairRates || {};
-  const scrapPer = rates.scrap_per_point ?? 1;
+  const scrapCost = rates.scrap_cost ?? 1;
+  const scrapPts = rates.scrap_points ?? 1;
   const scrapQty = state.scrap ?? 0;
 
   for (const it of entries) {
@@ -352,17 +358,17 @@ export function renderPack(onAction) {
       node.appendChild(drop);
     }
 
-    // 残血武器（手上的或背包里的）：废料修 1 点——非商人区域也能修
+    // 残血武器（手上的或背包里的）：废料修理——非商人区域也能修
     const maxd = maxWearOf(it);
     const repairable = !locked && it.kind === "weapon" && it.wear != null
-      && it.wear < maxd && !state.inCombat && scrapQty >= scrapPer;
+      && it.wear < maxd && !state.inCombat && scrapQty >= scrapCost;
     if (repairable) {
       const fix = document.createElement("button");
       fix.type = "button";
       fix.className = "btn btn-safe pack-fix";
-      fix.textContent = `🧱${scrapPer} 修1点`;
+      fix.textContent = `🧱${scrapCost} 修${scrapPts}点`;
       fix.disabled = state.busy;
-      fix.title = `用 ${scrapPer} 废料修 1 点耐久（可逐次修满，不降耐久上限）`;
+      fix.title = `用 ${scrapCost} 废料修 ${scrapPts} 点耐久（余数舍弃，可逐次修满，不降耐久上限）`;
       fix.addEventListener("click", (e) => {
         e.stopPropagation();
         onAction({ id: "repair", item: it.id, pay: "scrap" });
@@ -509,14 +515,14 @@ export function renderMerchant(onAction) {
     }
   }
 
-  // ---- 修理：每件可修装备给废料 / 现金两个按钮（每次修 1 点，可逐次修满）----
+  // ---- 修理：每件可修装备给废料 / 现金两个按钮（每次消耗 1 份资源修多点，可逐次修满）----
   const repBox = document.getElementById("merchant-repair");
   if (repBox) {
     repBox.innerHTML = "";
     const opts = state.repairOptions || [];
     const rates = state.repairRates || {};
-    const rateNote = rates.scrap_per_point
-      ? `修 1 点耐久：🧱 ${rates.scrap_per_point} 或 💰 ${rates.cash_per_point}（可逐次修）`
+    const rateNote = rates.scrap_cost
+      ? `修 1 次：🧱 ${rates.scrap_cost} 修 ${rates.scrap_points} 点，或 💰 ${rates.cash_cost} 修 ${rates.cash_points} 点（余数舍弃）`
       : "";
     if (!opts.length) {
       repBox.innerHTML = `<span class="pack-empty">没有要修的</span>`;
@@ -526,22 +532,24 @@ export function renderMerchant(onAction) {
       card.className = "mch-card";
       const canScrap = scrap >= r.scrap_cost;
       const canCash = cash >= r.cash_cost;
+      const sp = Math.min(r.scrap_points ?? 1, r.max - r.cur);
+      const cp = Math.min(r.cash_points ?? 1, r.max - r.cur);
       card.innerHTML =
         `<span class="mch-name">${iconFor(r.id) || "🔧"} ${r.name}</span>` +
         `<span class="mch-desc">耐久 ${r.cur}/${r.max}${rateNote ? ` · ${rateNote}` : ""}</span>`;
       const bs = document.createElement("button");
       bs.type = "button";
       bs.className = "btn btn-safe mch-btn";
-      bs.textContent = `废料修 1 点（🧱 ${r.scrap_cost}）`;
+      bs.textContent = `废料修 ${sp} 点（🧱 ${r.scrap_cost}）`;
       bs.disabled = !canScrap || state.busy;
-      bs.title = scrap < r.scrap_cost ? "废料不够" : "每次修 1 点耐久，可逐次修满；不降耐久上限";
+      bs.title = scrap < r.scrap_cost ? "废料不够" : "每次消耗 1 废料修 3 点耐久（余数舍弃），可逐次修满；不降耐久上限";
       bs.addEventListener("click", () => onAction({ id: "merchant", choice: "repair", item: r.id, pay: "scrap" }));
       const bc = document.createElement("button");
       bc.type = "button";
       bc.className = "btn btn-safe mch-btn";
-      bc.textContent = `现金修 1 点（💰 ${r.cash_cost}）`;
+      bc.textContent = `现金修 ${cp} 点（💰 ${r.cash_cost}）`;
       bc.disabled = !canCash || state.busy;
-      bc.title = cash < r.cash_cost ? "现金不够" : "每次修 1 点耐久，可逐次修满；不降耐久上限";
+      bc.title = cash < r.cash_cost ? "现金不够" : "每次消耗 1 现金修 2 点耐久（余数舍弃），可逐次修满；不降耐久上限";
       bc.addEventListener("click", () => onAction({ id: "merchant", choice: "repair", item: r.id, pay: "cash" }));
       card.append(bs, bc);
       repBox.appendChild(card);

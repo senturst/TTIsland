@@ -39,6 +39,7 @@ class GameConfig:
         self.events_cfg: dict = _load_yaml("events.yaml")
         self.levels_cfg: dict = _load_yaml("level_themes.yaml")
         self.talents_cfg: dict = _load_yaml("talents.yaml")
+        self.regions_cfg: dict = _load_yaml("regions.yaml")
 
         # ---- 物品索引：按 id 聚合所有类别 ----
         self.items: dict[str, dict] = {}
@@ -77,6 +78,18 @@ class GameConfig:
             int(k): v for k, v in self.levels_cfg["levels"].items()
         }
 
+        # ---- 地区（P6.2.1）：实装地区索引 + 层→地区映射 ----
+        # placeholder 地区只是结构占位，不进索引——玩家查不到、校验不碰。
+        self.regions: dict[int, dict] = {}
+        self._level_region: dict[int, int] = {}
+        for k, r in (self.regions_cfg.get("regions") or {}).items():
+            if r.get("placeholder"):
+                continue
+            rid = int(k)
+            self.regions[rid] = r
+            for lv in r.get("levels") or []:
+                self._level_region[int(lv)] = rid
+
         self._validate()
 
     # ------------------------------------------------------------------
@@ -106,6 +119,31 @@ class GameConfig:
     @property
     def max_level(self) -> int:
         return max(self.levels)
+
+    # ---- 地区（P6.2.1）----
+    @property
+    def max_region(self) -> int:
+        return max(self.regions) if self.regions else 1
+
+    def region_for_level(self, level: int) -> dict:
+        """某层属于哪个（实装）地区。未归属的层视为地区 1。"""
+        rid = self._level_region.get(int(level), 1)
+        return self.regions.get(rid) or self.regions[1]
+
+    def region_last_level(self, region_id: int) -> int:
+        """地区的最后一层（撤离点所在层）——撤离成功即解锁下一地区。"""
+        levels = self.regions[int(region_id)].get("levels") or []
+        return max(levels) if levels else self.max_level
+
+    def region_unlocked(self, region_id: int, region_progress: int) -> bool:
+        """地区是否已解锁。
+
+        region_progress = 玩家已从「哪个地区」撤离过（0 = 一个都没通关）。
+        地区 N 解锁条件：region_progress >= N-1（即从 N-1 撤离过）。
+        地区 1 对所有人开放。
+        """
+        rid = int(region_id)
+        return rid <= 1 or int(region_progress or 0) >= rid - 1
 
     def room_template(self, room_type: str, template_id: str) -> dict:
         for tpl in self.room_templates.get(room_type, []):
@@ -189,6 +227,18 @@ class GameConfig:
         boss_id = self.levels_cfg["boss"]["id"]
         if boss_id not in self.monsters:
             errs.append(f"boss.id 引用不存在的怪物: {boss_id}")
+
+        # 5b. 地区配置：实装地区的层必须有主题定义，且一层不能归属两个地区
+        for rid, region in self.regions.items():
+            rlevels = region.get("levels") or []
+            if not rlevels:
+                errs.append(f"地区 {rid} 未定义 levels")
+            for lv in rlevels:
+                if lv not in self.levels:
+                    errs.append(f"地区 {rid} 引用了未定义的层: {lv}")
+                other = self._level_region.get(lv)
+                if other is not None and other != rid:
+                    errs.append(f"第 {lv} 层同时归属地区 {other} 和 {rid}")
 
         # 6. 事件：层级合法、结果概率闭合、引用的物品/怪物存在
         for ev in self.events:

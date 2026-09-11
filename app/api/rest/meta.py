@@ -18,6 +18,16 @@ async def meta_config() -> dict:
     return {
         "config_version": cfg.balance.get("config_version", 1),
         "max_level": cfg.max_level,
+        "regions": {
+            rid: {
+                "name": r["name"],
+                "icon": r.get("icon", ""),
+                "subtitle": r.get("subtitle", ""),
+                "brief": r.get("brief", ""),
+                "levels": r.get("levels") or [],
+            }
+            for rid, r in cfg.regions.items()
+        },
         "levels": {
             lv: {
                 "name": t["name"],

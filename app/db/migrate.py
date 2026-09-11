@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .pool import connect, db_path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
@@ -55,6 +55,10 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
         "ALTER TABLE runs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
         "UPDATE runs SET updated_at = COALESCE(ended_at, started_at)",
         "CREATE INDEX IF NOT EXISTS idx_runs_updated ON runs(updated_at) WHERE status = 'active'",
+    ]),
+    # v6：地区进度（P6.2.1）—— 玩家已从哪个地区撤离过（0=尚未通关任何地区）
+    (6, [
+        "ALTER TABLE players ADD COLUMN region_progress INTEGER NOT NULL DEFAULT 0",
     ]),
 ]
 
