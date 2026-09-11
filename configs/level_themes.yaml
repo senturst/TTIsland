@@ -19,11 +19,11 @@ levels:
     subtitle: 地表 · 日光尚在
     brief: 灾难刚过去不久。阳光还能照到街面，物资也还没被搜干净。
     mechanism: 日光
-    mechanism_desc: 视野良好，搜刮效率 +100%。这是你囤积物资的最后机会——新手地图，掉率上调，但怪物本身不弱。
+    mechanism_desc: 视野良好，搜刮效率 +50%。这是你囤积物资的最后机会——新手地图，掉率上调，但怪物本身不弱。
     entry_text: 你从藏身的地下室爬出来。街上很安静，安静得过分。
     exit_text: 你找到一处通往地下的检修井。往下走，光线开始消失。
     modifiers:
-      loot_rolls_mult: 2.0       # 相比其它层更慷慨的掉率（新手友好）
+      loot_rolls_mult: 1.5       # 相比其它层更慷慨的掉率（新手友好）
       search_extra_flat: 0.2     # 搜索续 roll 概率额外 +20%，更容易一次摸到多件
     on_enter_level:
       infection_decay: 0
@@ -58,7 +58,7 @@ levels:
     id: 3
     name: 中心医院
     icon: "🏥"
-    subtitle: 三层 · 病毒培养区
+    subtitle: 二层 · 病毒培养区
     brief: 这里曾是最后一个还在运转的地方。也正因如此，这里的空气最脏。
     mechanism: 高危污染区
     mechanism_desc: 30% 的房间是高危区，进入 +8 感染，但医疗掉落 ×3。要不要赌，取决于你的抗生素还剩几支。
@@ -76,7 +76,7 @@ levels:
     id: 4
     name: 万达商场
     icon: "🏬"
-    subtitle: 二层 · 警报系统
+    subtitle: 三层 · 警报系统
     brief: 这里的警报在混乱中被触发过。它没停，也永远不会停。
     mechanism: 警报系统
     mechanism_desc: 噪音基线 5 且自然衰减减半。钢卷帘门可锁住一个房间躲避尸潮（消耗撬棍耐久）。战利品品质 +1 档。
