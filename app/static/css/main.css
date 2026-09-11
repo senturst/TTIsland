@@ -38,6 +38,9 @@ html, body {
   font-size: 15px;
   line-height: 1.75;
   overflow: hidden;
+  /* 任何意外的内容溢出都不允许把页面撑出横向滚动（防手机整页被裁） */
+  overflow-x: hidden;
+  max-width: 100vw;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
@@ -109,6 +112,11 @@ body::after {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   min-height: 0;
 }
+
+/* 防横向撑爆：grid 子项默认 min-width:auto，任何子内容的 min-content 超过视口
+   （如天赋按钮的长 label）都会把整列撑宽，表现为整页横向被裁。
+   统一允许 grid 直接子项收缩到视口内。 */
+.app > * { min-width: 0; }
 
 /* ============================ HUD ============================ */
 .hud {
@@ -229,6 +237,7 @@ body::after {
   display: flex;
   align-items: flex-start;
   gap: .6rem;
+  min-width: 0; /* flex 子项收缩保护，防长物品名把整行撑出视口 */
 }
 .pack-label {
   color: var(--text-faint);
@@ -241,6 +250,7 @@ body::after {
   display: flex;
   flex-wrap: wrap;
   gap: .3rem;
+  min-width: 0;
 }
 
 /* 可交互的（消耗品 / 可换装备） */
@@ -290,6 +300,8 @@ body::after {
   padding: .55rem .9rem calc(.7rem + env(safe-area-inset-bottom));
 }
 .cmd-buttons { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .5rem; }
+/* iOS Safari 的 button UA 样式不换行：天赋三选一的长 label 会把一行撑到视口外 */
+.cmd-buttons .btn { white-space: normal; word-break: break-word; }
 
 .btn {
   font-family: var(--mono);
@@ -315,6 +327,7 @@ body::after {
 .btn-talent {
   text-align: left; width: 100%; padding: .5rem .8rem;
   border-color: rgba(127,224,138,.3); margin-bottom: .3rem;
+  white-space: normal; word-break: break-word;
 }
 
 .cmd-hint {
