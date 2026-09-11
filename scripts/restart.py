@@ -93,6 +93,15 @@ def preflight() -> bool:
     py = ROOT / ".venv" / "Scripts" / "python.exe"
     if not py.exists():
         py = ROOT / ".venv" / "bin" / "python"
+    # 预检：app 包是否真的在 ROOT 下。早期 .gitignore 的 `data/` 模式误伤了 app/data/，
+    # 导致全新克隆/pull 的机器上根本没有 app/data/loader.py，报错却只给裸 traceback，
+    # 很难一眼看出是"文件缺失"而非"路径问题"。先显式查一遍，给清晰错误。
+    app_loader = ROOT / "app" / "data" / "loader.py"
+    if not app_loader.exists():
+        print(f"  !! 找不到 {app_loader}")
+        print("     app 包不在项目根下——多半是仓库缺文件（历史 .gitignore 误忽略了 app/data/）。")
+        print("     请在项目根执行 `git pull` 拉全代码，或确认 app/ 目录完整后重试。")
+        return False
     # 关键：把项目根显式插到 sys.path 最前面，避免依赖 cwd 或 PYTHONPATH
     # （部署环境 cwd 可能不在项目根，或被 PYTHONSAFEPATH 剔除，导致
     #  `from app...` 报 ModuleNotFoundError: No module named 'app.data'）
