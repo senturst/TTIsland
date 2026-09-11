@@ -14,7 +14,8 @@ REM ============================================================================
 setlocal
 
 set PORT=8000
-set ROOT=%~dp0..
+REM 规范化项目根（去掉 ..，得到干净绝对路径，避免任何路径解析歧义）
+for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
 REM 显式把项目根加入 PYTHONPATH，确保 `python -c "from app..."` 与
 REM `python -m uvicorn` 能稳定导入 app 包（不依赖 cwd / PYTHONSAFEPATH）

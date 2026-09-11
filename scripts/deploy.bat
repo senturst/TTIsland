@@ -19,7 +19,8 @@ REM        monster/talent IDs change (restart.py handles that).
 REM ============================================================================
 setlocal
 
-set "ROOT=%~dp0.."
+REM 规范化项目根（去掉 ..，得到干净绝对路径，避免任何路径解析歧义）
+for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
 REM 显式把项目根加入 PYTHONPATH：restart.py 内部的 `python -c` 配置校验
 REM 与 `python -m uvicorn` 都会继承此变量，确保稳定导入 app 包
