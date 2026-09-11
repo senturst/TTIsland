@@ -19,11 +19,11 @@ REM        monster/talent IDs change (restart.py handles that).
 REM ============================================================================
 setlocal
 
-REM 规范化项目根（去掉 ..，得到干净绝对路径，避免任何路径解析歧义）
+REM Normalize project root to a clean absolute path (strip the trailing ..)
 for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
-REM 显式把项目根加入 PYTHONPATH：restart.py 内部的 `python -c` 配置校验
-REM 与 `python -m uvicorn` 都会继承此变量，确保稳定导入 app 包
+REM Make project root importable: restart.py's `python -c` check and uvicorn
+REM both inherit PYTHONPATH, so `from app...` resolves regardless of cwd/safepath
 set "PYTHONPATH=%ROOT%"
 set "PY=%ROOT%\.venv\Scripts\python.exe"
 if not defined PORT set "PORT=8000"

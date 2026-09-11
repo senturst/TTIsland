@@ -14,11 +14,11 @@ REM ============================================================================
 setlocal
 
 set PORT=8000
-REM 规范化项目根（去掉 ..，得到干净绝对路径，避免任何路径解析歧义）
+REM Normalize project root to a clean absolute path (strip the trailing ..)
 for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
-REM 显式把项目根加入 PYTHONPATH，确保 `python -c "from app..."` 与
-REM `python -m uvicorn` 能稳定导入 app 包（不依赖 cwd / PYTHONSAFEPATH）
+REM Make project root importable so `python -c "from app..."` and uvicorn
+REM resolve `app` regardless of cwd or PYTHONSAFEPATH
 set "PYTHONPATH=%ROOT%"
 
 echo [1/3] Freeing port %PORT% ...
