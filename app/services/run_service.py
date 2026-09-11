@@ -1784,22 +1784,25 @@ class RunEngine:
             self._log("你冲商人点了点头，继续往前走。")
             return
 
-        # 感染商人：血量 ≥ 50%（可配）最大生命才可交易；成交时抽走「缺失的血量」
-        # （即补满所需的量）作为代价——半血来交易就只抽一半，满血交易抽满额。
+        # 感染商人规则：
+        #   血量 ≥ 50%（可配）最大生命 → 享受折扣价，首次成交时抽走「缺失的血量」；
+        #   血量不过半 → 仍可交易，但按原价（无折扣）、不抽血。
+        #   折扣只在 shop 生成时应用，因此原价 = entry["value"]，现价 = entry["cost"]。
+        #   抽血每次进房只发生一次（hp_taken 标记），买多件不会重复被抽。
+        full_price = False
         if m["type"] == "plagued":
             threshold = st["hp_max"] * float(
                 cfg.balance.get("merchant", {}).get("plagued", {}).get("min_hp_pct", 0.5)
             )
             if st["hp"] < threshold:
-                pct = int(float(cfg.balance.get("merchant", {})
-                                .get("plagued", {}).get("min_hp_pct", 0.5)) * 100)
-                self._log(
-                    f"你的血流得太多，它嫌你付不起价——生命至少要保有 {pct}% 才能交易。"
-                )
-                return
-            hp_cost = max(1, st["hp_max"] - st["hp"])
-            st["hp"] = max(1, st["hp"] - hp_cost)
-            self._log(f"它伸手按在你胸口，把你缺的血全抽走了。（HP −{hp_cost}）")
+                full_price = True
+                self._log("它盯着你失血的手臂嘶笑：这个状态没资格讲价——按原价来。")
+            elif not m.get("hp_taken"):
+                hp_cost = max(1, st["hp_max"] - st["hp"])
+                st["hp"] = max(1, st["hp"] - hp_cost)
+                m["hp_taken"] = True
+                self._log(f"它伸手按在你胸口，把你缺的血全抽走了。（HP −{hp_cost}）")
+        m["_full_price"] = full_price
 
         if choice == "repair":
             iid = payload.get("item")
@@ -1814,7 +1817,8 @@ class RunEngine:
             if not entry:
                 self._log("商人没有这个货。")
                 return
-            cost = int(entry["cost"])
+            # 感染商人血量不过半时按原价（value）；正常折扣价 = cost
+            cost = int(entry["value"]) if m.get("_full_price") else int(entry["cost"])
             if loot.count(st, "cash") < cost:
                 self._log(
                     f"现金不够——{cfg.item(iid)['name']} 要 {cost}，你只有 {loot.count(st, 'cash')}。"
@@ -2206,12 +2210,8 @@ class RunEngine:
                         "discount": round(m.get("discount", 1.0), 2),
                         "authors_mercy": bool(m.get("authors_mercy")),
                         "mercy_taken": bool(m.get("mercy_taken")),
-                        "trade_blocked": (
-                            m["type"] == "plagued"
-                            and st["hp"] < st["hp_max"] * float(
-                                cfg.balance.get("merchant", {})
-                                .get("plagued", {}).get("min_hp_pct", 0.5))
-                        ),
+                        # 感染商人血量不过半：可交易但按原价（无折扣、不抽血）
+                        "full_price": bool(m.get("_full_price")),
                         "shop": [
                             {
                                 "id": s["id"],
