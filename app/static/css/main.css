@@ -443,9 +443,9 @@ kbd.hot { margin-left: .35rem; }
 .name-confirm { width: 100%; }
 
 
-/* 世界面板（排行榜 + 实时播报） */
+/* 世界面板（排行榜 + 实时播报）；命名弹窗共用。z-index 必须压过启动屏(.boot=100) */
 .overlay {
-  position: fixed; inset: 0; z-index: 60;
+  position: fixed; inset: 0; z-index: 200;
   background: rgba(4,6,5,.72);
   display: flex; align-items: center; justify-content: center;
   padding: 1rem;

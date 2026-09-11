@@ -297,6 +297,9 @@ async function boot() {
     const hello = await api.hello();
     let playerName = hello.player?.name;
     if (hello.needs_name) {
+      // 关键：先撤掉启动屏再弹名字。启动屏 z-index(100) 高于弹窗(60) 且背景不透明，
+      // 不先隐藏的话弹窗被完全盖住，玩家只会看到永远停在"校验身份…"。
+      document.getElementById("boot").classList.add("hidden");
       const chosen = await promptName();
       if (chosen) playerName = chosen;
     }
