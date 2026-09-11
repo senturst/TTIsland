@@ -55,15 +55,8 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
             return "grave", {"choice": "take", "uid": choices[0]["uid"]}
         return "grave", {"choice": "skip"}
 
-    if st.get("pending_decision") == "bag_full":
-        # 满包：模拟会腾位拿走新物的玩家——丢背包里第一件（整件移除必腾出 1 格）
-        inv = st.get("inventory") or []
-        if inv:
-            return "discard", {"choice": "drop", "item": inv[0]["id"]}
-        return "discard", {"choice": "skip"}
-
     if st.get("pending_decision") == "bag_overflow":
-        # 换装缩水导致溢出：丢到装得下为止（必然有可丢项，否则不会溢出）
+        # 背包超载（先拿后丢 / 换装缩水）：丢到装得下为止（必然有可丢项，否则不会溢出）
         inv = st.get("inventory") or []
         if inv:
             return "discard", {"choice": "drop", "item": inv[0]["id"]}

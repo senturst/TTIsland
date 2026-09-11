@@ -803,8 +803,8 @@ class RunEngine:
         elif decision == "grave_pick":
             # 选一件带走 / 什么都不拿 都复用 _act_grave 的处理
             await self._act_grave(payload)
-        elif decision in ("bag_full", "bag_overflow"):
-            # 背包满 / 溢出：丢弃物品腾位（bag_full 也可放弃新物）
+        elif decision == "bag_overflow":
+            # 背包超载：丢弃物品回到容量以内（先拿后丢模型的强制清理）
             await self._act_discard(payload)
 
         self.persist_rng()
@@ -889,8 +889,7 @@ class RunEngine:
 
             # 基础掉落也受 max_items 封顶，保证"单次搜索最多 N 件"
             for _ in range(min(rolls, max_items)):
-                if not self._grant_search_find(room, tables, quality, found):
-                    break
+                self._grant_search_find(room, tables, quality, found)
         else:
             if self.rng.chance(0.45):
                 self._grant_search_find(room, None, 0, found)
@@ -909,14 +908,8 @@ class RunEngine:
                 cfg.room_template("loot", room["tpl"]).get("tables") or ["ammo"]
                 if room["type"] == "loot" else None
             )
-            if not self._grant_search_find(room, tables, 0, found):
-                break
+            self._grant_search_find(room, tables, 0, found)
             k += 1
-
-        if found:
-            self._log("你找到了：" + "、".join(found))
-        else:
-            self._log("空的。什么都没剩下。")
 
         # 现金：搜索时「独立」概率获取（不走类别权重，与上面的掉落互不干扰）
         cash_cfg = self.cfg.balance.get("loot_cash") or {}
@@ -924,14 +917,19 @@ class RunEngine:
             amt = self.rng.rand_range_int(
                 [int(cash_cfg.get("min", 1)), int(cash_cfg.get("max", 5))]
             )
-            if self._acquire("cash", amt):
-                self._log(f"你在杂物堆里摸到 {amt} 现金。")
+            self._acquire("cash", amt)
+            self._log(f"你在杂物堆里摸到 {amt} 现金。")
+
+        if found:
+            self._log("你找到了：" + "、".join(found))
+        else:
+            self._log("空的。什么都没剩下。")
         self._check_horde()
 
     def _grant_search_find(
         self, room: dict, tables, quality: int, found: list[str]
-    ) -> bool:
-        """从一次搜索判定里产出一件物品并入包。返回是否成功入包（False=背包满）。
+    ) -> None:
+        """从一次搜索判定里产出一件物品并入包（先拿后丢：超容量由 bag_overflow 决策兜底）。
 
         tables 为物资房模板表（可能含 "weapons"）；None 表示走全局类别权重。
         """
@@ -939,26 +937,21 @@ class RunEngine:
         st = self.state
         cat = self.rng.choice(tables) if tables is not None else loot.roll_category(cfg, self.rng)
         if cat == "weapons":
-            return self._roll_weapon(found)
+            self._roll_weapon(found)
+            return
         for iid, qty in loot.roll_loot(cfg, self.rng, st, cat, 1, quality):
-            if self._acquire(iid, qty):
-                found.append(loot.describe(cfg, iid, qty))
-            else:
-                # 背包满，本次掉落装不下（调用方据此 break）
-                return False
-        return True
+            self._acquire(iid, qty)
+            found.append(loot.describe(cfg, iid, qty))
 
-    def _roll_weapon(self, found: list[str]) -> bool:
-        """枪店类房间的武器掉落。返回是否成功入包（False=背包满）。"""
+    def _roll_weapon(self, found: list[str]) -> None:
+        """枪店类房间的武器掉落。"""
         pool = [w for w in self.cfg.items_cfg["weapons"] if w["id"] != "crowbar"]
         if not pool:
-            return True
+            return
         w = self.rng.weighted_choice(pool, [x.get("weight", 10) for x in pool])
         dur = int(w.get("durability", 0)) or None
-        if not self._acquire(w["id"], 1, dur):
-            return False
+        self._acquire(w["id"], 1, dur)
         found.append(w["name"])
-        return True
 
     async def _act_attack(self, payload: dict) -> None:
         await self._player_attack(payload, ranged=False)
@@ -1053,12 +1046,13 @@ class RunEngine:
             self._log(f"{self.cfg.item(w['id'])['name']}快断了，挥起来没多少力道。")
 
     # ------------------------------------------------------------------
-    # 背包容量系统
+    # 背包容量系统（先拿后丢）
     #
     # 单格 = 一个物品条目。可堆叠物资（弹药/绷带/材料/纪念品）只占 1 格，
     # qty 累加不占新格，天然限制"无限囤积"。总容量 = 基础 + 天赋 + 背包 slots + 护甲口袋。
-    # 拾取满时触发 bag_full 决策（必须丢一件腾位，或放弃新物）；
-    # 换上更小装备导致容量缩水时触发 bag_overflow（必须丢到装得下为止）。
+    # 获取（搜索/掉落/买卖/墓碑拾取）总是直接入包——允许暂时超过上限；
+    # 但只要格数超过容量，就暂停为 bag_overflow 决策：必须丢到容量以内才能继续任何行动。
+    # 换上更小装备导致容量缩水时，同样触发 bag_overflow。
     # ------------------------------------------------------------------
     def _bag_cap(self) -> int:
         st = self.state
@@ -1072,43 +1066,32 @@ class RunEngine:
             cap += int(self.cfg.item(ar["id"]).get("pockets", 0))
         return max(1, cap)
 
-    def _would_overflow(self, item_id: str, qty: int) -> bool:
-        """装下这件会不会超过背包格数。"""
-        st = self.state
-        if len(st["inventory"]) < self._bag_cap():
-            return False
-        # 背包已满：可堆叠且已有该条目 → 只占既有格，不溢出；否则溢出
-        if loot.is_stackable(self.cfg, item_id):
-            return item_id not in {e["id"] for e in st["inventory"]}
-        return True
-
-    def _acquire(self, item_id: str, qty: int = 1, durability: int | None = None) -> bool:
-        """入包的唯一入口：满了就暂停为 bag_full 决策，否则直接 grant。返回是否入包成功。"""
-        st = self.state
-        if self._would_overflow(item_id, qty):
-            name = self.cfg.item(item_id)["name"]
-            cap = self._bag_cap()
-            st["bag_pending"] = {"id": item_id, "qty": qty, "durability": durability}
-            # 若此刻正卡在别的决策里（如墓碑选件），先记下来，腾位后回去
-            if st.get("pending_decision") and st["pending_decision"] != "bag_full":
-                st["bag_return"] = st["pending_decision"]
-            st["pending_decision"] = "bag_full"
-            self._log(f"背包满了（{cap} 格），{name} 装不下——先丢一件才能拿走它。")
-            return False
-        loot.grant(self.cfg, st, item_id, qty, durability)
-        return True
+    def _over_capacity(self) -> bool:
+        """当前是否超过背包格数上限。"""
+        return len(self.state["inventory"]) > self._bag_cap()
 
     def _check_bag_overflow(self) -> bool:
-        """换装导致容量缩水时，若物品超格则暂停为 bag_overflow 决策。"""
+        """超容量（含换装缩水）时暂停为 bag_overflow 决策：丢到装得下为止。"""
         st = self.state
-        if len(st["inventory"]) > self._bag_cap():
+        if self._over_capacity() and st.get("pending_decision") != "bag_overflow":
             st["pending_decision"] = "bag_overflow"
-            self._log("背包空间不够了——换上装备后容量缩水，丢掉一些东西才能继续。")
+            self._log("背包塞得太满了——先丢掉一些东西，才能继续行动。")
             return True
         return False
 
+    def _acquire(self, item_id: str, qty: int = 1, durability: int | None = None) -> bool:
+        """入包的唯一入口：先拿后丢——总是直接 grant（允许暂时超上限），
+        超了就暂停为 bag_overflow 决策。返回是否成功入包。"""
+        st = self.state
+        loot.grant(self.cfg, st, item_id, qty, durability)
+        if self._over_capacity():
+            name = self.cfg.item(item_id)["name"]
+            self._log(f"你硬把 {name} 塞了进去——背包超载了，得丢掉一些东西才能继续。")
+            self._check_bag_overflow()
+        return True
+
     def _grave_take(self, uid: str) -> None:
-        """从尸体上带走一件：满了就暂停，腾位后由 _grave_finish_take 收尾。"""
+        """从尸体上带走一件：先拿后丢——直接入包，超上限则暂停为 bag_overflow。"""
         st = self.state
         grave = st["room"].get("grave")
         pick = next(
@@ -1118,17 +1101,8 @@ class RunEngine:
         if not pick:
             self._log("你没找到那件东西。")
             return
-        if self._would_overflow(pick["id"], 1):
-            name = pick["name"]
-            cap = self._bag_cap()
-            st["bag_pending"] = {"id": pick["id"], "qty": 1, "durability": pick.get("durability")}
-            st["bag_grave_uid"] = uid
-            if st.get("pending_decision") and st["pending_decision"] != "bag_full":
-                st["bag_return"] = st["pending_decision"]
-            st["pending_decision"] = "bag_full"
-            self._log(f"背包满了（{cap} 格），{name} 装不下——先丢一件才能带走它。")
-            return
         self._grave_finish_take(uid)
+        self._check_bag_overflow()
 
     def _grave_finish_take(self, uid: str) -> None:
         """真正把尸体上的某件塞进背包，并从尸体移除。"""
@@ -1153,9 +1127,6 @@ class RunEngine:
             "item_id": pick["id"],
         }
         grave["gear"] = [g for g in grave["gear"] if str(g.get("uid")) != str(uid)]
-        st.pop("bag_grave_uid", None)
-        st.pop("bag_return", None)
-        st.pop("bag_pending", None)
         st.pop("grave_choices", None)
         st["pending_decision"] = None
         # 尸体已空 → 移出房间，下次进门不再刷这具
@@ -1165,30 +1136,12 @@ class RunEngine:
             st["room"].pop("grave", None)
 
     async def _act_discard(self, payload: dict) -> None:
-        """处理 bag_full（腾位拿新物 / 放弃新物）与 bag_overflow（必须丢到装得下）。"""
+        """处理 bag_overflow：丢弃物品，直到格数回到容量以内才能继续行动。"""
         st = self.state
         choice = payload.get("choice")
 
         if choice == "skip":
-            if st.get("pending_decision") == "bag_overflow":
-                self._log("背包还装不下——你得先丢一些东西。")
-                return
-            # bag_full：放弃新物
-            pend = st.pop("bag_pending", None)
-            ret = st.pop("bag_return", None)
-            st.pop("bag_grave_uid", None)
-            if ret == "grave_pick":
-                grave = st["room"].get("grave")
-                if grave and grave.get("gear"):
-                    st["grave_choices"] = [dict(g) for g in grave["gear"]]
-                    st["pending_decision"] = "grave_pick"
-                    self._log("你决定不要那件了，再看看遗体上还有什么。")
-                else:
-                    st["pending_decision"] = None
-                    self._log("你什么也没拿。")
-            else:
-                st["pending_decision"] = None
-                self._log(f"你放弃了{self.cfg.item(pend['id'])['name'] if pend and pend.get('id') else '那件新东西'}。")
+            self._log("背包还塞不下——你得先丢一些东西。")
             return
 
         # 丢弃背包里的某件物品（整件/整组移除，确保腾出所占格）
@@ -1203,32 +1156,11 @@ class RunEngine:
         loot.remove(st, iid, entry["qty"])
         self._log(f"你丢掉了 {self.cfg.item(iid)['name']}。")
 
-        # 腾出空间后，尝试装入 pending 新物
-        pend = st.get("bag_pending")
-        if pend:
-            loot.grant(self.cfg, st, pend["id"], pend.get("qty", 1), pend.get("durability"))
-            self._log(f"你拿起了 {self.cfg.item(pend['id'])['name']}。")
-            st.pop("bag_pending", None)
-            if st.get("bag_return") == "grave_pick":
-                uid = st.pop("bag_grave_uid", None)
-                st.pop("bag_return", None)
-                if uid is not None:
-                    self._grave_finish_take(uid)
-                else:
-                    st["pending_decision"] = None
-                return
-            st.pop("bag_return", None)
-            st["pending_decision"] = None
-            return
-
-        # bag_overflow：丢弃后若仍超容量，保持决策继续让玩家丢
+        # 丢弃后若仍超容量，保持决策继续让玩家丢；回到容量内则解除
         if st.get("pending_decision") == "bag_overflow":
-            if len(st["inventory"]) <= self._bag_cap():
+            if not self._over_capacity():
                 st["pending_decision"] = None
                 self._log("背包腾出了空间。")
-            return
-
-        st["pending_decision"] = None
 
     async def _kill_enemy(self, enemy: dict, ranged: bool) -> None:
         st = self.state
@@ -1262,9 +1194,8 @@ class RunEngine:
         if self.rng.chance(0.35):
             cat = loot.roll_category(self.cfg, self.rng)
             for iid, qty in loot.roll_loot(self.cfg, self.rng, st, cat, 1):
-                if self._acquire(iid, qty):
-                    self._log(f"它身上掉出了 {loot.describe(self.cfg, iid, qty)}。")
-                # 背包满则跳过本次掉落（不强行塞）
+                self._acquire(iid, qty)
+                self._log(f"它身上掉出了 {loot.describe(self.cfg, iid, qty)}。")
 
     async def _enemy_round(self) -> None:
         st = self.state
@@ -1542,18 +1473,14 @@ class RunEngine:
             noise.add(self.cfg, st, int(outcome["noise"]))
         if outcome.get("item"):
             name = self.cfg.item(outcome["item"])["name"]
-            if self._acquire(outcome["item"], 1):
-                self._log(f"获得 {name}。")
-            else:
-                self._log(f"（背包满了，{name} 装不下）")
+            self._acquire(outcome["item"], 1)
+            self._log(f"获得 {name}。")
         if outcome.get("loot_category"):
             for iid, qty in loot.roll_loot(
                 self.cfg, self.rng, st, outcome["loot_category"], 1
             ):
-                name = self.cfg.item(iid)["name"]
-                if self._acquire(iid, qty):
-                    self._log(f"获得 {loot.describe(self.cfg, iid, qty)}。")
-                # 背包满则跳过本次掉落
+                self._acquire(iid, qty)
+                self._log(f"获得 {loot.describe(self.cfg, iid, qty)}。")
         if outcome.get("spawn"):
             count = int(outcome.get("count", 1))
             enemies = [
@@ -1636,7 +1563,7 @@ class RunEngine:
             if not pick:
                 self._log("你没找到那件东西。")
                 return
-            # 背包满会触发 bag_full 决策并暂停；腾出空间后由 _act_discard 收尾
+            # 先拿后丢：直接带走，超容量则触发 bag_overflow 决策并暂停
             self._grave_take(uid)
             return
 
@@ -1824,9 +1751,8 @@ class RunEngine:
                     f"现金不够——{cfg.item(iid)['name']} 要 {cost}，你只有 {loot.count(st, 'cash')}。"
                 )
                 return
-            # 先验证背包容量：满了就暂停决策，不扣现金
-            if not self._acquire(iid, 1):
-                return
+            # 先拿后丢：直接成交入包（超容量由 bag_overflow 决策兜底）
+            self._acquire(iid, 1)
             loot.remove(st, "cash", cost)
             self._log(f"你花 {cost} 现金换来了 {cfg.item(iid)['name']}。")
             return
@@ -1864,8 +1790,7 @@ class RunEngine:
             if not entry:
                 self._log("他没那件货。")
                 return
-            if not self._acquire(iid, 1):
-                return
+            self._acquire(iid, 1)
             m["mercy_taken"] = True
             self._log(f"他大手一挥：{cfg.item(iid)['name']} 归你了，算我请的。")
             return
@@ -2331,24 +2256,8 @@ class RunEngine:
                 for g in (st.get("grave_choices") or [])
             ] + [{"id": "grave", "label": "什么都不拿", "choice": "skip", "kind": "ghost"}]
 
-        if st.get("pending_decision") == "bag_full":
-            # 背包满：列出可丢弃的物品腾位；墓碑嵌套时不允许"放弃"（否则卡半途）
-            pend = st.get("bag_pending") or {}
-            pend_name = self.cfg.item(pend["id"])["name"] if pend.get("id") else "新东西"
-            acts = [
-                {"id": "discard", "label": f"丢掉：{self.cfg.item(it['id'])['name']}",
-                 "choice": "drop", "item": it["id"], "kind": "danger"}
-                for it in st["inventory"]
-            ]
-            if st.get("bag_return") != "grave_pick":
-                acts.append({
-                    "id": "discard", "label": f"不要了，放弃 {pend_name}",
-                    "choice": "skip", "kind": "ghost",
-                })
-            return acts
-
         if st.get("pending_decision") == "bag_overflow":
-            # 容量缩水：必须丢到装得下为止，无"放弃"选项
+            # 背包超载（先拿后丢 / 换装缩水）：必须丢到容量以内，无"放弃"选项
             return [
                 {"id": "discard", "label": f"丢掉：{self.cfg.item(it['id'])['name']}",
                  "choice": "drop", "item": it["id"], "kind": "danger"}
