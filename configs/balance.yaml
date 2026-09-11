@@ -55,7 +55,7 @@ combat:
   flee_stamina_cost: 4
   # 逃跑成功率按扣减前的当前体力加成：每点体力额外 +0.5%——满体力（100）多 50%，
   # 被 flee_clamp 钳制。体力越满越容易逃掉，让"拼了命地跑"有真实收益。
-  flee_stamina_bonus_pct: 0.5
+  flee_stamina_bonus_pct: 0.2
   # 体力→战斗：消耗体力"瞄准"，换临时命中加成。设计红线：绝不对命中做任何体力惩罚，
   # 低体力只是用不了"瞄准"，绝不会降低基础命中。
   brace_stamina_cost: 5
