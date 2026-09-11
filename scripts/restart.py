@@ -166,7 +166,18 @@ def main() -> int:
     print(f"[3] 后台启动 http://127.0.0.1:{PORT}")
     print(f"    日志：{LOG_FILE.relative_to(ROOT)}")
     with LOG_FILE.open("wb") as fh:
-        proc = subprocess.Popen(cmd, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT)
+        # 关键：让 uvicorn 脱离父控制台独立存活。否则 deploy.bat / dev.bat 跑完、
+        # 调用它的 cmd/PowerShell 窗口一关，后台子进程就被回收杀掉，
+        # 浏览器刚加载完页面、发 /api/player/hello 时服务器已死 → 卡在"校验身份…"。
+        # Windows 用 DETACHED_PROCESS；POSIX 用 start_new_session 脱离进程组。
+        popen_kwargs: dict = {"cwd": ROOT, "stdout": fh, "stderr": subprocess.STDOUT}
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **popen_kwargs)
     PID_FILE.write_text(str(proc.pid), encoding="utf-8")
 
     for _ in range(30):
