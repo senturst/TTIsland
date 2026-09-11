@@ -218,6 +218,13 @@ mapgen:
   room_weights:
     main:   {combat: 40, loot: 20, event: 15, empty: 15, grave: 5,  special: 5, merchant: 5}
     branch: {combat: 20, loot: 35, event: 15, empty: 5,  grave: 20, special: 5, merchant: 5}
+  # 商人保底：每层必出的商人房数量（key=层数）。1-4 层各保底 2 个，
+  # 撤离层（第 5 层）节奏特殊不保底。不足时从普通房随机改铸补足。
+  merchant_guarantee:
+    1: 2
+    2: 2
+    3: 2
+    4: 2
 
 # ============================================================================
 # 平衡目标

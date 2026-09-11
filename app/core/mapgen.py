@@ -153,7 +153,33 @@ def generate_level(cfg: GameConfig, rng: RNG, level: int) -> dict[str, Any]:
         r["name"] = tpl["name"]
         r["vibe"] = tpl.get("vibe", "")
 
-    # ---- 4. 层主题钩子：第 3 层的高危污染区 ----
+    # ---- 4. 商人保底：1-4 层每层必出 2 个商人房，且每层不重复 ----
+    #     按权重随机刷出来的商人房 + 强制补足配额（从非商人房里随机改铸）。
+    #     配额只对地区 1 的 1-4 层生效；撤离层（最后一层）节奏特殊，不加保底。
+    #     注意：这里只保证"房间是商人房"；每个商人房的货/类型进房时才生成，
+    #     所以同一层天然不会有重复的商人实体。
+    # YAML 数字键解析为 int，这里同时兼容 int / str 两种 key
+    quota_cfg = mg.get("merchant_guarantee", {}) or {}
+    merchant_quota = int(quota_cfg.get(level, quota_cfg.get(str(level), 0)))
+    if merchant_quota > 0:
+        # 已经按权重刷出来的商人房计入配额
+        cur = [r for r in rooms if r["type"] == "merchant"]
+        # 可改铸池：非 special、非商人房（楼梯/篝火不动，入口房不动）
+        pool = [
+            r for r in rooms
+            if r["type"] not in ("merchant", "special") and r["idx"] != 0
+        ]
+        rng.shuffle(pool)
+        while len(cur) < merchant_quota and pool:
+            r = pool.pop()
+            tpl = _pick_template(cfg, rng, "merchant", level)
+            r["type"] = "merchant"
+            r["tpl"] = tpl["id"]
+            r["name"] = tpl["name"]
+            r["vibe"] = tpl.get("vibe", "")
+            cur.append(r)
+
+    # ---- 5. 层主题钩子：第 3 层的高危污染区 ----
     theme = themes[level]
     hazmat_chance = theme.get("modifiers", {}).get("hazmat_room_chance")
     if hazmat_chance:
