@@ -399,6 +399,50 @@ def test_legacy_unknown_item_entries_are_cleaned():
     asyncio.run(run())
 
 
+def test_merchant_closes_after_trade_on_reentry():
+    """商人在本房有过成交后玩家离开 → 房间 resolved，回来看到收摊。
+    防双向边"成交→出门→再进来"无限刷（卖出换现金本可无限循环）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        lmap = st["level_map"]
+        room = lmap["rooms"][lmap["current"]]
+        room["type"] = "merchant"
+        room["resolved"] = False
+        st["room"] = {"type": "merchant", "name": "流浪商人", "idx": room["idx"]}
+        st["in_combat"] = False
+        st["combat"] = {}
+        eng._enter_merchant(room)
+        st["room"]["merchant"]["shop"] = [
+            {"id": "bandage", "cost": 2, "value": 3, "kind": "consumable"}
+        ]
+        loot.grant(cfg, st, "dog_tag", 1)
+        await eng._act_merchant({"choice": "sell", "item": "dog_tag"})
+        assert st["room"].get("merchant_traded"), "成交应打标记"
+
+        # 找一条出口走出去再回来（测试图若无回路则跳过回程，只验 resolved）
+        exits = [e["to"] for e in room.get("exits") or []]
+        if exits:
+            await eng._act_move({"to": exits[0]})
+            assert room.get("resolved"), "成交后离开房间，商人应收摊"
+            # 走回来（若有回程边）
+            back = next(
+                (e["to"] for e in lmap["rooms"][exits[0]]["exits"] if e["to"] == room["idx"]),
+                None,
+            )
+            if back is not None:
+                await eng._act_move({"to": back})
+                n_before = loot.count(st, "dog_tag")
+                loot.grant(cfg, st, "dog_tag", 1)
+                await eng._act_merchant({"choice": "sell", "item": "dog_tag"})
+                assert any("不在了" in line for line in eng._out), eng._out
+                assert loot.count(st, "dog_tag") == n_before + 1, "收摊后不能再卖"
+
+    asyncio.run(run())
+
+
 def test_cash_is_independent_counter():
     """现金是独立计数资源：grant 不进背包、不占格；count/remove 走独立通道。"""
     cfg = get_config()
@@ -459,6 +503,8 @@ if __name__ == "__main__":
     print("✓ 感染商人每次成交都抽血")
     test_merchant_sell_rejects_after_same_item_sold()
     print("✓ 同款商品槽成交后拒收第二件")
+    test_merchant_closes_after_trade_on_reentry()
+    print("✓ 成交后离开房间商人收摊（防双向边回刷）")
     test_merchant_plagued_full_price_when_low()
     print("✓ 感染商人血量不过半按原价交易")
     test_grave_pick_ranged_weapon()

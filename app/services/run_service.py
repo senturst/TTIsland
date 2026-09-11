@@ -672,7 +672,9 @@ class RunEngine:
         if room.get("resolved"):
             self._log("商人已经收摊走了。")
             return
-        # 已生成过则不复抓（重入保持同一商人/同一批货）
+        # 已生成过则不复抓（重入保持同一商人/同一批货）。
+        # 注意：房间必须由双向边连回来才可能重入，而重入意味着玩家可以
+        # "卖→出门→再进来"无限刷——所以一旦发生过任何成交，进房即收摊（见成交处）。
         if st["room"].get("merchant"):
             m = st["room"]["merchant"]
             if m["type"] == "plagued":
@@ -841,6 +843,12 @@ class RunEngine:
 
         label = next((e["label"] for e in exits if e["to"] == target), "继续")
         self._log(f"— {label} —")
+        # 商人在本房有过成交 → 离开即收摊（防双向边"成交→出门→再进来"无限刷）
+        if st["room"].get("merchant_traded"):
+            room = mapgen.current_room(lmap)
+            if room.get("type") == "merchant":
+                room["resolved"] = True
+            st["room"]["merchant_traded"] = False
         await self._enter_room(target)
 
     async def _act_search(self, payload: dict) -> None:
@@ -1759,6 +1767,10 @@ class RunEngine:
             st["room"]["merchant_left"] = True
             self._log("你冲商人点了点头，继续往前走。")
             return
+
+        # 任何成交（买/卖/修理/怜悯）后标记：玩家离开房间时商人收摊。
+        # 防双向边"成交→出门→再进来"无限刷。实际置 resolved 在 _act_move 离开时。
+        st["room"]["merchant_traded"] = True
 
         # 感染商人规则：
         #   血量 ≥ 50%（可配）最大生命 → 享受折扣价，**每次成交都抽走「缺失的血量」**
