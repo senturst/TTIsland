@@ -35,7 +35,8 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 15px;
+  /* 基准字号 × 用户缩放（A+/A- 按钮，localStorage 持久化） */
+  font-size: calc(15px * var(--ui-scale, 1));
   line-height: 1.75;
   overflow: hidden;
   /* 任何意外的内容溢出都不允许把页面撑出横向滚动（防手机整页被裁） */
@@ -508,9 +509,32 @@ kbd.hot { margin-left: .35rem; }
 .flash.on { box-shadow: inset 0 0 90px var(--danger); animation: flash .5s ease 1; }
 @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
 
+/* ============================ UI 缩放按钮 ============================ */
+/* 高分屏下 15px 基准字太小，A+/A- 调整 --ui-scale；JS 持久化到 localStorage */
+.zoom-ctrl {
+  display: flex; gap: 2px;
+  margin-left: auto;           /* 推到 meta 行最右 */
+  flex-shrink: 0;
+}
+.zoom-btn {
+  font-family: var(--mono);
+  font-size: .72rem;
+  line-height: 1;
+  padding: .28rem .4rem;
+  min-width: 1.7rem;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.zoom-btn:hover { color: var(--phosphor); border-color: var(--phosphor); }
+.zoom-btn:active { transform: translateY(1px); }
+
 /* ============================ 手机屏 ============================ */
 @media (max-width: 700px) {
-  html, body { font-size: 15px; }
+  html, body { font-size: calc(15px * var(--ui-scale, 1)); }
 
   /* 安全区：顶部/底部刘海都留出，命令区不再被 home indicator 挡 */
   .app { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }

@@ -1296,7 +1296,8 @@ class RunEngine:
         alive = [e for e in st["combat"]["enemies"] if e["hp"] > 0]
         fastest = max((e.get("speed", 5) for e in alive), default=5)
         agi = combat.player_agility(st) + int(talents.mod(st, "flee_bonus", 0)) // 5
-        if combat.try_flee(self.cfg, self.rng, agi, fastest):
+        # 体力加成按扣减前的当前体力计：体力越满越容易逃掉（每点 +0.5%，可配）
+        if combat.try_flee(self.cfg, self.rng, agi, fastest, stamina=st["stamina"]):
             st["in_combat"] = False
             noise.add(self.cfg, st, "sprint")
             cost = int(self.cfg.balance["combat"].get("flee_stamina_cost", 0))

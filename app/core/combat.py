@@ -194,9 +194,21 @@ def resolve_attack(
     }
 
 
-def try_flee(cfg: GameConfig, rng: RNG, player_agi: int, enemy_agi: int) -> bool:
+def try_flee(
+    cfg: GameConfig,
+    rng: RNG,
+    player_agi: int,
+    enemy_agi: int,
+    stamina: int = 0,
+) -> bool:
+    """逃跑判定：敏捷差决定基础概率，当前体力每点额外 +0.5%（可配）。
+
+    stamina 传扣减前的当前体力——"拼了命地跑"：体力越满越容易逃掉。
+    """
     c = cfg.balance["combat"]
     chance = c["flee_base"] + c["flee_per_agi"] * (player_agi - enemy_agi)
+    stamina_bonus_pct = float(c.get("flee_stamina_bonus_pct", 0))
+    chance += stamina * stamina_bonus_pct
     chance = max(c["flee_clamp"][0], min(c["flee_clamp"][1], chance))
     return rng.chance(chance / 100.0)
 

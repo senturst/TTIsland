@@ -287,8 +287,45 @@ function promptName() {
 }
 
 /* ------------------------------------------------------------------ */
+/* UI 缩放：高分屏下 15px 基准字太小。A+/A- 调整根字号缩放系数，
+   localStorage 持久化；范围 0.8 ~ 1.8，步进 0.1。 */
+const ZOOM_KEY = "ttisland_ui_scale";
+const ZOOM_MIN = 0.8;
+const ZOOM_MAX = 1.8;
+
+function applyZoom(scale) {
+  const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(scale * 10) / 10));
+  document.documentElement.style.setProperty("--ui-scale", String(clamped));
+  try { localStorage.setItem(ZOOM_KEY, String(clamped)); } catch { /* 隐私模式忽略 */ }
+}
+
+function setupZoom() {
+  let saved = 1;
+  try { saved = parseFloat(localStorage.getItem(ZOOM_KEY)) || 1; } catch { /* 忽略 */ }
+  applyZoom(saved);
+
+  const root = document.getElementById("zoom-ctrl");
+  const zin = document.getElementById("zoom-in");
+  const zout = document.getElementById("zoom-out");
+  if (!root || !zin || !zout) return;
+  zin.addEventListener("click", () => {
+    const cur = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--ui-scale")
+    ) || 1;
+    applyZoom(cur + 0.1);
+  });
+  zout.addEventListener("click", () => {
+    const cur = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--ui-scale")
+    ) || 1;
+    applyZoom(cur - 0.1);
+  });
+}
+
+/* ------------------------------------------------------------------ */
 async function boot() {
   setupViewport();
+  setupZoom();
   const statusNode = document.getElementById("boot-status");
   host = initTerm(document.getElementById("term"));
 

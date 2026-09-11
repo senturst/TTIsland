@@ -98,7 +98,7 @@ weapons:
     crit: 0.12
     noise_key: silenced
     ammo_type: ammo_smg
-    ammo_per_shot: 3
+    ammo_per_shot: 1
     weight: 5
     tier: 2
     value: 16
@@ -219,7 +219,7 @@ ammo:
   - id: ammo_smg
     name: 冲锋枪弹
     icon: "🔩"
-    qty: [4, 8]
+    qty: [3, 6]
     weight: 25
     value: 4
 
