@@ -378,6 +378,27 @@ def test_search_can_yield_multiple_via_decreasing_prob():
         search_cfg.update(orig)
 
 
+def test_legacy_unknown_item_entries_are_cleaned():
+    """旧局遗留的未知物品条目（如已删除的 cash 物品定义）在引擎加载时被清掉，
+    不得让 _response 序列化炸 500。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["inventory"].append({"id": "cash", "qty": 3, "durability": None})
+        eng.state["inventory"].append({"id": "bandage", "qty": 1, "durability": None})
+        # 模拟 API 层 _load_engine 的加载路径
+        eng2 = RunEngine(cfg, eng.state)
+        assert all(e["id"] != "cash" for e in eng2.state["inventory"]), \
+            "未知 ID 条目应在加载时清除"
+        assert any(e["id"] == "bandage" for e in eng2.state["inventory"]), \
+            "正常物品不受影响"
+        resp = eng2._response()  # 曾在此处抛 ConfigError: 未知物品 ID: cash
+        assert all(e["id"] != "cash" for e in resp["state"]["inventory"])
+
+    asyncio.run(run())
+
+
 def test_cash_is_independent_counter():
     """现金是独立计数资源：grant 不进背包、不占格；count/remove 走独立通道。"""
     cfg = get_config()
@@ -450,6 +471,8 @@ if __name__ == "__main__":
     print("✓ 搜索概率递减多件生效")
     test_cash_is_independent_counter()
     print("✓ 现金独立计数（不进背包、不占格）")
+    test_legacy_unknown_item_entries_are_cleaned()
+    print("✓ 旧局遗留未知物品条目加载时清理，不炸响应")
     test_field_repair_outside_merchant()
     print("✓ 非商人区域废料逐点修理")
     print("\n商人/搜索/墓碑远程 回归测试全部通过")

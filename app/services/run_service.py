@@ -120,6 +120,12 @@ class RunEngine:
         # world 是跨局世界数据的注入点（墓碑等）。默认空实现，保证 sim.py 直接驱动时不依赖数据库。
         self.world = world or _NullWorld()
         self._out: list[str] = []
+        # 旧局遗留条目清理：物品定义可能已从配置删除（如 cash 曾是 material 实体物品），
+        # 残留条目会让 cfg.item() 在响应序列化时炸 500。加载时把未知 ID 条目就地清掉。
+        known = cfg.items
+        state["inventory"] = [
+            e for e in state.get("inventory", []) if e.get("id") in known
+        ]
 
     # ------------------------------------------------------------------
     # 存档
