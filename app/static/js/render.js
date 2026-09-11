@@ -254,6 +254,10 @@ export function renderPack(onAction) {
     return;
   }
 
+  // 修理换算（服务端下发）：修 1 点耐久各资源的单价
+  const rates = state.repairRates || {};
+  const scrapPer = rates.scrap_per_point ?? 1;
+
   for (const it of entries) {
     // 有未决决策（选天赋/遗物/尸化/捡尸/背包满等）时，随身面板一律不可点。
     // 否则死亡后点背包里任意物品，会以默认 index=-1 静默走 legacy 分支、
@@ -318,8 +322,63 @@ export function renderPack(onAction) {
         onAction({ id: actionId, item: it.id, label: it.name })
       );
     }
+
+    // 背包里的物品：丢弃按钮（带二次确认，明确告知无法找回）
+    if (!it.held && !locked) {
+      const drop = document.createElement("button");
+      drop.type = "button";
+      drop.className = "btn btn-danger pack-drop";
+      drop.textContent = "丢弃";
+      drop.disabled = state.busy;
+      drop.title = "丢弃后无法找回";
+      drop.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (drop.dataset.confirm !== "1") {
+          // 第一次点：变成确认态，3 秒内再点才真正丢弃
+          drop.dataset.confirm = "1";
+          drop.textContent = "确认丢弃？";
+          drop.title = "丢弃后无法找回！再点一次确认";
+          setTimeout(() => {
+            if (drop.isConnected) {
+              drop.dataset.confirm = "";
+              drop.textContent = "丢弃";
+            }
+          }, 3000);
+          return;
+        }
+        onAction({ id: "discard", choice: "drop", item: it.id });
+      });
+      node.appendChild(drop);
+    }
+
+    // 残血武器（手上的或背包里的）：废料修 1 点——非商人区域也能修
+    const maxd = maxWearOf(it);
+    const repairable = !locked && it.kind === "weapon" && it.wear != null
+      && it.wear < maxd && !state.inCombat && scrapQty >= scrapPer;
+    if (repairable) {
+      const fix = document.createElement("button");
+      fix.type = "button";
+      fix.className = "btn btn-safe pack-fix";
+      fix.textContent = `🧱${scrapPer} 修1点`;
+      fix.disabled = state.busy;
+      fix.title = `用 ${scrapPer} 废料修 1 点耐久（可逐次修满，不降耐久上限）`;
+      fix.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onAction({ id: "repair", item: it.id, pay: "scrap" });
+      });
+      node.appendChild(fix);
+    }
+
     box.appendChild(node);
   }
+}
+
+/** 物品的耐久上限：手上的武器/护甲取配置耐久（服务端 repairOptions.max），
+ *  背包装备同样从 repairOptions 找；找不到时返回 Infinity（视为满耐久，不显示修按钮）。 */
+function maxWearOf(it) {
+  const opts = state.repairOptions || [];
+  const r = opts.find((o) => o.id === it.id);
+  return r ? r.max : Infinity;
 }
 
 /* ------------------------------------------------------------------ */
@@ -439,11 +498,15 @@ export function renderMerchant(onAction) {
     }
   }
 
-  // ---- 修理：每件可修装备给废铁 / 现金两个按钮 ----
+  // ---- 修理：每件可修装备给废料 / 现金两个按钮（每次修 1 点，可逐次修满）----
   const repBox = document.getElementById("merchant-repair");
   if (repBox) {
     repBox.innerHTML = "";
     const opts = state.repairOptions || [];
+    const rates = state.repairRates || {};
+    const rateNote = rates.scrap_per_point
+      ? `修 1 点耐久：🧱 ${rates.scrap_per_point} 或 💰 ${rates.cash_per_point}（可逐次修）`
+      : "";
     if (!opts.length) {
       repBox.innerHTML = `<span class="pack-empty">没有要修的</span>`;
     }
@@ -454,20 +517,20 @@ export function renderMerchant(onAction) {
       const canCash = cash >= r.cash_cost;
       card.innerHTML =
         `<span class="mch-name">${iconFor(r.id) || "🔧"} ${r.name}</span>` +
-        `<span class="mch-desc">耐久 ${r.cur}/${r.max}</span>`;
+        `<span class="mch-desc">耐久 ${r.cur}/${r.max}${rateNote ? ` · ${rateNote}` : ""}</span>`;
       const bs = document.createElement("button");
       bs.type = "button";
       bs.className = "btn btn-safe mch-btn";
-      bs.textContent = `废铁修（🧱 ${r.scrap_cost}）`;
+      bs.textContent = `废料修 1 点（🧱 ${r.scrap_cost}）`;
       bs.disabled = !canScrap || state.busy;
-      bs.title = scrap < r.scrap_cost ? "废铁不够" : "每次修理会降低耐久上限";
+      bs.title = scrap < r.scrap_cost ? "废料不够" : "每次修 1 点耐久，可逐次修满；不降耐久上限";
       bs.addEventListener("click", () => onAction({ id: "merchant", choice: "repair", item: r.id, pay: "scrap" }));
       const bc = document.createElement("button");
       bc.type = "button";
       bc.className = "btn btn-safe mch-btn";
-      bc.textContent = `现金修（💰 ${r.cash_cost}）`;
+      bc.textContent = `现金修 1 点（💰 ${r.cash_cost}）`;
       bc.disabled = !canCash || state.busy;
-      bc.title = cash < r.cash_cost ? "现金不够" : "每次修理会降低耐久上限";
+      bc.title = cash < r.cash_cost ? "现金不够" : "每次修 1 点耐久，可逐次修满；不降耐久上限";
       bc.addEventListener("click", () => onAction({ id: "merchant", choice: "repair", item: r.id, pay: "cash" }));
       card.append(bs, bc);
       repBox.appendChild(card);
@@ -513,7 +576,10 @@ export function renderAll(onAction) {
 
 export function setBusy(busy) {
   state.busy = busy;
-  const buttons = document.querySelectorAll("#cmd-buttons .btn");
+  // 必须同时覆盖命令区与商人面板：consume() 在 setBusy(false) 之前调用 renderAll()，
+  // 商人按钮此时以 busy=true 渲染成 disabled，若这里只恢复 #cmd-buttons，
+  // 商人的买/卖/修按钮会永远卡在灰色。
+  const buttons = document.querySelectorAll("#cmd-buttons .btn, #merchant .mch-btn");
   buttons.forEach((b) => { b.disabled = busy; });
 }
 

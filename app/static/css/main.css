@@ -298,6 +298,26 @@ body::after {
 
 .pack-empty { color: var(--text-faint); font-size: .74rem; }
 
+/* 随身面板内嵌小按钮：丢弃（二次确认）与废料修理 */
+.pack-item .pack-drop, .pack-item .pack-fix {
+  font-family: var(--mono);
+  font-size: .64rem;
+  padding: .04rem .3rem;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pack-item .pack-drop { border-color: rgba(179,64,47,.45); color: #d0806f; }
+.pack-item .pack-drop[data-confirm="1"] {
+  background: rgba(179,64,47,.22); color: #ff9c85; border-color: rgba(179,64,47,.8);
+  animation: blink .8s step-end infinite;
+}
+.pack-item .pack-fix { border-color: rgba(74,140,90,.4); color: var(--safe); }
+.pack-item .pack-drop:disabled, .pack-item .pack-fix:disabled { opacity: .45; cursor: default; }
+@keyframes blink { 50% { opacity: .55; } }
+
 /* ============================ 命令区 ============================ */
 .cmd {
   border-top: 1px solid var(--line); background: var(--panel);

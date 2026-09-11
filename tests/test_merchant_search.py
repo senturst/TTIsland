@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sys
 from pathlib import Path
@@ -52,7 +53,7 @@ def test_merchant_repair_consumes_scrap_and_restores_durability():
 
     async def run():
         eng = await _new_run(cfg)
-        # 把开局近战武器弄残，再给足废铁与现金
+        # 把开局近战武器弄残，再给足废料与现金
         eng.state["weapon"]["durability"] = 5
         loot.grant(cfg, eng.state, "scrap", 20)
         loot.grant(cfg, eng.state, "cash", 20)
@@ -62,15 +63,21 @@ def test_merchant_repair_consumes_scrap_and_restores_durability():
         await eng._act_merchant({"choice": "repair", "pay": "scrap"})
 
         after = loot.count(eng.state, "scrap")
-        assert after < before, "修复应当消耗废铁"
-        # 修复后当前耐久 = 新（已缩水）上限
-        new_cap = int(round(
-            int(cfg.item(eng.state["weapon"]["id"]).get("durability", 0) or 0)
-            * (1.0 - float(cfg.balance["merchant"]["repair"]["durability_loss_pct"]
-                          .get(cfg.item(eng.state["weapon"]["id"]).get("tier", 1), 0.25)))
-        ))
-        assert eng.state["weapon"]["durability"] == new_cap, "修复后耐久应等于缩水后的新上限"
-        assert any("废铁" in line for line in eng._out), eng._out
+        assert after < before, "修复应当消耗废料"
+        # 逐点修：每次修 1 点（向上取整单价）
+        per = float(cfg.balance["merchant"]["repair"]["scrap_per_point"])
+        assert eng.state["weapon"]["durability"] == 6, \
+            f"一次修理应只修 1 点耐久（5→6），实际 {eng.state['weapon']['durability']}"
+        assert after == before - math.ceil(per), "应消耗 ceil(scrap_per_point) 个废料"
+        assert any("废料" in line for line in eng._out), eng._out
+
+        # 连续修可以逐步修满，不再降低耐久上限
+        maxd = int(cfg.item(eng.state["weapon"]["id"]).get("durability", 0) or 0)
+        for _ in range(maxd + 5):
+            await eng._act_merchant({"choice": "repair", "pay": "scrap"})
+            if eng.state["weapon"]["durability"] >= maxd:
+                break
+        assert eng.state["weapon"]["durability"] == maxd, "可逐次把武器修满"
 
     asyncio.run(run())
 
@@ -81,12 +88,12 @@ def test_merchant_repair_insufficient_scrap_is_noop():
     async def run():
         eng = await _new_run(cfg)
         eng.state["weapon"]["durability"] = 5
-        loot.grant(cfg, eng.state, "scrap", 0)  # 没废铁
+        loot.grant(cfg, eng.state, "scrap", 0)  # 没废料
         _enter_merchant_room(eng)
 
         await eng._act_merchant({"choice": "repair", "pay": "scrap"})
-        assert eng.state["weapon"]["durability"] == 5, "废铁不足时不应修复"
-        assert any("废铁不够" in line for line in eng._out), eng._out
+        assert eng.state["weapon"]["durability"] == 5, "废料不足时不应修复"
+        assert any("不够" in line for line in eng._out), eng._out
 
     asyncio.run(run())
 
@@ -316,9 +323,52 @@ def test_search_can_yield_multiple_via_decreasing_prob():
         search_cfg.update(orig)
 
 
+def test_cash_is_independent_counter():
+    """现金是独立计数资源：grant 不进背包、不占格；count/remove 走独立通道。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        n0 = len(eng.state["inventory"])
+        loot.grant(cfg, eng.state, "cash", 7)
+        loot.grant(cfg, eng.state, "cash", 3)
+        # 背包条目数不变（新局；旧局遗留的现金条目也能被 count 兼容读取）
+        assert len(eng.state["inventory"]) == n0, "现金不应进背包"
+        assert eng.state["cash"] == 10, "现金应累加到独立计数"
+        assert loot.count(eng.state, "cash") == 10
+        assert loot.remove(eng.state, "cash", 4)
+        assert loot.count(eng.state, "cash") == 6
+        assert not loot.remove(eng.state, "cash", 99), "余额不足时移除应失败"
+
+    asyncio.run(run())
+
+
+def test_field_repair_outside_merchant():
+    """非商人区域可用废料逐点修武器（战斗中被拒绝）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["weapon"]["durability"] = 5
+        loot.grant(cfg, eng.state, "scrap", 10)
+        # 开局可能随机刷进遭遇战——修理只应在非战斗状态可用
+        eng.state["in_combat"] = False
+
+        await eng.act("repair", {"item": eng.state["weapon"]["id"], "pay": "scrap"})
+        assert eng.state["weapon"]["durability"] == 6, "非商人区修理应修 1 点"
+
+        # 战斗中拒绝
+        eng.state["in_combat"] = True
+        n = eng.state["weapon"]["durability"]
+        await eng.act("repair", {"item": eng.state["weapon"]["id"], "pay": "scrap"})
+        assert eng.state["weapon"]["durability"] == n, "战斗中不应能修"
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     test_merchant_repair_consumes_scrap_and_restores_durability()
-    print("✓ 商人修复耗废铁并按 tier 缩水耐久上限")
+    print("✓ 商人修复逐点耗废料且可修满不降上限")
     test_merchant_repair_insufficient_scrap_is_noop()
     print("✓ 废铁不足不修复")
     test_merchant_buy_spends_cash()
@@ -339,4 +389,8 @@ if __name__ == "__main__":
     print("✓ 搜索封顶 max_items")
     test_search_can_yield_multiple_via_decreasing_prob()
     print("✓ 搜索概率递减多件生效")
+    test_cash_is_independent_counter()
+    print("✓ 现金独立计数（不进背包、不占格）")
+    test_field_repair_outside_merchant()
+    print("✓ 非商人区域废料逐点修理")
     print("\n商人/搜索/墓碑远程 回归测试全部通过")

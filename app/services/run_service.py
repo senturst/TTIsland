@@ -1081,8 +1081,12 @@ class RunEngine:
 
     def _acquire(self, item_id: str, qty: int = 1, durability: int | None = None) -> bool:
         """入包的唯一入口：先拿后丢——总是直接 grant（允许暂时超上限），
-        超了就暂停为 bag_overflow 决策。返回是否成功入包。"""
+        超了就暂停为 bag_overflow 决策。返回是否成功入包。
+        现金走独立计数，不占格、永不触发超载。"""
         st = self.state
+        if item_id == "cash":
+            loot.grant(self.cfg, st, "cash", qty)
+            return True
         loot.grant(self.cfg, st, item_id, qty, durability)
         if self._over_capacity():
             name = self.cfg.item(item_id)["name"]
@@ -1300,16 +1304,25 @@ class RunEngine:
         if combat.try_flee(self.cfg, self.rng, agi, fastest, stamina=st["stamina"]):
             st["in_combat"] = False
             noise.add(self.cfg, st, "sprint")
-            cost = int(self.cfg.balance["combat"].get("flee_stamina_cost", 0))
-            if cost:
-                st["stamina"] = max(0, st["stamina"] - cost)
-                self._log(f"你转身就跑，把它们甩在了身后。（噪音 +2 · 体力 −{cost}）")
-            else:
-                self._log("你转身就跑，把它们甩在了身后。（噪音 +2）")
+            self._log("你转身就跑，把它们甩在了身后。（噪音 +2）")
             self._check_horde()
         else:
             self._log("你没能甩掉它们。")
             await self._enemy_round()
+
+    async def _act_repair(self, payload: dict) -> None:
+        """非商人区域的修理：用废料（或现金）逐点修装备。
+
+        战斗中不可修；商人房间走 merchant.repair（同一套换算）。
+        """
+        st = self.state
+        if st.get("in_combat"):
+            self._log("它们就在眼前——现在可不是修武器的时候。")
+            return
+        iid = payload.get("item")
+        pay = payload.get("pay", "scrap")
+        ok, msg = self._do_repair(iid, pay)
+        self._log(msg)
 
     async def _act_use(self, payload: dict) -> None:
         st = self.state
@@ -1620,11 +1633,22 @@ class RunEngine:
                     return r
         return None
 
-    def _do_repair(self, iid: str, pay: str) -> tuple[bool, str]:
-        """用废铁或现金修理一件装备。
+    def _repair_rates(self) -> tuple[float, float]:
+        """修理换算：返回 (每点耐久耗废料, 每点耐久耗现金)。天赋 repair_bonus 提高每次修的耐久量。"""
+        rcfg = self.cfg.balance.get("merchant", {}).get("repair", {})
+        bonus = max(0.0, float(talents.mod(self.state, "repair_bonus", 0.0)))
+        return (
+            float(rcfg.get("scrap_per_point", 0.3)),
+            float(rcfg.get("cash_per_point", 0.5)),
+        ), bonus
 
-        pay ∈ {"scrap","cash"}。每次修理按 tier 降低耐久上限（8%~25%），
-        修理后当前耐久 = 新的（已缩水）上限；这是「无限续命」的封顶。
+    def _do_repair(self, iid: str, pay: str) -> tuple[bool, str]:
+        """用废铁或现金修理一件装备，每次修「一点」耐久。
+
+        pay ∈ {"scrap","cash"}。每修 1 点耐久耗 scrap_per_point / cash_per_point
+        单位资源，向上取整；天赋 repair_bonus 可让一次修多几点。
+        玩家可以反复点，一点一点把武器修满——不再强制一次修到满。
+        非商人区域也可用（前端从随身面板对废料装备发起，走同一入口）。
         """
         st = self.state
         cfg = self.cfg
@@ -1632,39 +1656,43 @@ class RunEngine:
         if not tgt:
             return False, "没有需要修理的装备。"
         obj, wid, maxd, cur = tgt
-        rcfg = self.cfg.balance.get("merchant", {}).get("repair", {})
+        (scrap_per, cash_per), bonus = self._repair_rates()
         if pay == "scrap":
-            per = float(rcfg.get("scrap_per_point", 0.125))
-            cur_res = loot.count(st, "scrap")
-            res_name = "废铁"
+            per, cur_res, res_name = scrap_per, loot.count(st, "scrap"), "废料"
         else:
-            per = float(rcfg.get("cash_per_point", 0.5))
-            cur_res = loot.count(st, "cash")
-            res_name = "现金"
-        cost = math.ceil((maxd - cur) * per)
-        if cur_res < cost:
-            return False, f"{res_name}不够——修好 {cfg.item(wid)['name']} 要 {cost}，你只有 {cur_res}。"
+            per, cur_res, res_name = cash_per, loot.count(st, "cash"), "现金"
 
-        # 每次修理降低耐久上限（按 tier），修理后当前耐久 = 新上限
-        tier = int(cfg.item(wid).get("tier", 1))
-        loss_pct = float(rcfg.get("durability_loss_pct", {}).get(tier, 0.25))
-        new_cap = max(1, int(round(maxd * (1.0 - loss_pct))))
+        # 这次修几点：基础 1 点 + 天赋奖励；不超过缺失量
+        missing = maxd - cur
+        points = max(1, 1 + int(bonus)) if bonus > 0 else 1
+        points = min(points, missing)
+        cost = math.ceil(points * per)
+        if cur_res < cost:
+            return False, (
+                f"{res_name}不够——修 1 点耐久要 {math.ceil(per)} {res_name}"
+                f"（你只有 {cur_res}）。"
+            )
         loot.remove(st, "scrap" if pay == "scrap" else "cash", cost)
-        obj["durability"] = new_cap
+        obj["durability"] = cur + points
+        if points > 1:
+            return True, (
+                f"你用 {cost} {res_name} 把{cfg.item(wid)['name']}修了 {points} 点耐久"
+                f"（{cur}→{cur + points}）。"
+            )
         return True, (
-            f"你用 {cost} {res_name}把{cfg.item(wid)['name']}修到了满耐久"
-            f"（{cur}→{new_cap}，耐久上限 −{maxd - new_cap}）。"
+            f"你用 {cost} {res_name} 把{cfg.item(wid)['name']}修了 1 点耐久"
+            f"（{cur}→{cur + 1}）。"
         )
 
     def _repair_options(self) -> list[dict]:
-        """列出当前可修理的装备（近战武器 / 护甲），含废铁与现金两种估价。
+        """列出当前可修理的装备（近战武器 / 护甲），含废料与现金两种单价。
 
-        前端据此渲染修理按钮，无需自己读配置算价。
+        每次修理只修一点（向上取整）。前端据此渲染修理按钮并展示换算比例，
+        无需自己读配置算价。
         """
         cfg = self.cfg
-        rcfg = cfg.balance.get("merchant", {}).get("repair", {})
-        scrap_per = float(rcfg.get("scrap_per_point", 0.125))
-        cash_per = float(rcfg.get("cash_per_point", 0.5))
+        (scrap_per, cash_per), _bonus = self._repair_rates()
+        scrap_tip = math.ceil(scrap_per)  # 1 废料能修多少点：向下兼容的展示口径
         out: list[dict] = []
         # 当前装备优先，再扫背包里的武器/护甲
         candidates = []
@@ -1687,10 +1715,22 @@ class RunEngine:
                     "kind": cfg.item_kind(iid),
                     "max": maxd,
                     "cur": cur,
-                    "scrap_cost": math.ceil((maxd - cur) * scrap_per),
-                    "cash_cost": math.ceil((maxd - cur) * cash_per),
+                    # 每次修 1 点的单价（向上取整）
+                    "scrap_cost": math.ceil(scrap_per),
+                    "cash_cost": math.ceil(cash_per),
+                    # 换算提示：1 废料可修的耐久点数（向上取整口径下 ≥1）
+                    "scrap_points": max(1, int(1 / scrap_per)) if scrap_per > 0 else 1,
+                    "cash_points": max(1, int(1 / cash_per)) if cash_per > 0 else 1,
                 })
         return out
+
+    def _repair_rate_hints(self) -> dict:
+        """修理换算的展示口径：修 1 点耐久各资源的单价（向上取整）。"""
+        (scrap_per, cash_per), _bonus = self._repair_rates()
+        return {
+            "scrap_per_point": math.ceil(scrap_per),
+            "cash_per_point": math.ceil(cash_per),
+        }
 
     async def _act_merchant(self, payload: dict) -> None:
         """商人交互：随机铺货的买卖、废铁/现金修理、出售换现金、作者怜悯。"""
@@ -1775,7 +1815,7 @@ class RunEngine:
             price = max(1, int(round(value * ratio)))
             qty = loot.count(st, iid)
             loot.remove(st, iid, qty)
-            loot.grant(cfg, st, "cash", price * qty)
+            loot.grant(cfg, st, "cash", price * qty)  # 现金独立计数，不进背包
             self._log(f"你把 {cfg.item(iid)['name']}×{qty} 卖了 {price * qty} 现金。")
             return
 
@@ -2126,8 +2166,11 @@ class RunEngine:
                 "bag_cap": self._bag_cap(),
                 "bag_used": len(st["inventory"]),
                 "ammo": ammo,
+                # 现金独立计数：不进背包；旧局背包里的现金条目向下兼容并入显示
                 "cash": loot.count(st, "cash"),
                 "scrap": loot.count(st, "scrap"),
+                # 修理换算提示：每次修 1 点耐久的单价（向上取整）
+                "repair_rates": self._repair_rate_hints(),
                 "inventory": inventory,
                 "repair_options": self._repair_options(),
                 "merchant": (

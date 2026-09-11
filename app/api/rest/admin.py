@@ -137,8 +137,12 @@ async def list_players(_: None = Depends(require_admin)) -> dict:
             "hp_max": st.get("hp_max"),
             "stamina": st.get("stamina"),
             "infection": st.get("infection"),
-            "cash": st.get("cash", 0),
-            "scrap": st.get("scrap", 0),
+            "cash": st.get("cash", 0) + sum(
+                e["qty"] for e in st.get("inventory", []) if e.get("id") == "cash"
+            ),
+            "scrap": sum(
+                e["qty"] for e in st.get("inventory", []) if e.get("id") == "scrap"
+            ),
             "in_combat": bool(st.get("in_combat")),
             "score": st.get("score"),
             "started_at": r["started_at"],

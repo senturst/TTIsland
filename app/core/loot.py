@@ -68,8 +68,14 @@ def grant(
     item_id: str,
     qty: int = 1,
     durability: int | None = None,
-) -> dict[str, Any]:
-    """把物品放进背包，返回该物品的背包条目。"""
+) -> dict[str, Any] | None:
+    """把物品放进背包，返回该物品的背包条目。
+
+    现金是独立计数资源（不进背包、不占格子），grant 只累加 state["cash"] 并返回 None。
+    """
+    if item_id == "cash":
+        state["cash"] = int(state.get("cash", 0)) + int(qty)
+        return None
     item = cfg.item(item_id)
     if is_stackable(cfg, item_id):
         for e in state["inventory"]:
@@ -90,7 +96,13 @@ def grant(
 
 
 def remove(state: dict, item_id: str, qty: int = 1) -> bool:
-    """移除物品。武器/护甲按 id 移除第一个匹配项。"""
+    """移除物品。武器/护甲按 id 移除第一个匹配项。现金走独立计数。"""
+    if item_id == "cash":
+        have = int(state.get("cash", 0))
+        if have < qty:
+            return False
+        state["cash"] = have - int(qty)
+        return True
     for i, e in enumerate(state["inventory"]):
         if e["id"] != item_id:
             continue
@@ -103,6 +115,10 @@ def remove(state: dict, item_id: str, qty: int = 1) -> bool:
 
 
 def count(state: dict, item_id: str) -> int:
+    """现金从独立计数读取；旧局背包里的现金条目也算数（向下兼容）。"""
+    if item_id == "cash":
+        inv = sum(e["qty"] for e in state["inventory"] if e["id"] == "cash")
+        return int(state.get("cash", 0)) + inv
     return sum(e["qty"] for e in state["inventory"] if e["id"] == item_id)
 
 

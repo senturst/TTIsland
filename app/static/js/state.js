@@ -26,6 +26,7 @@ export const state = {
   inventory: [],
   merchant: null,
   repairOptions: [],
+  repairRates: null,
   room: null,
   exits: [],
   inCombat: false,
