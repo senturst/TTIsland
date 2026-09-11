@@ -259,7 +259,7 @@ consumables:
   - id: vodka
     name: 伏特加
     icon: "🍺"
-    buff: {acc: +10, taken_dmg: -2, turns: 5}
+    buff: {acc: +10, taken_dmg: -1, turns: 5}
     infection: +3
     weight: 8
     value: 5
@@ -279,6 +279,7 @@ consumables:
     weight: 8
     value: 12
     desc_ai: false
+    rare: true
   - id: painkiller
     name: 止痛药
     icon: "💊"
@@ -298,7 +299,7 @@ consumables:
   - id: energy_drink
     name: 能量饮料
     icon: "🥤"
-    heal_stamina: 15
+    heal_stamina: 10
     infection: -2
     weight: 6
     value: 4
@@ -320,12 +321,9 @@ materials:
     icon: "🍶"
     weight: 7
     value: 2
-  - id: cash
-    name: 现金
-    icon: "💰"
-    weight: 1
-    value: 1                # 货币本身：1 单位 = 1 现金；不参与出售、不继承
-    desc_ai: false
+  # 注意：现金（cash）不是物品，是独立计数资源（state["cash"]，HUD 💰 chip）。
+  # 不要把它加回任何物品段/掉落表/商店池——历史上放在 materials 里曾导致
+  # 它以实体条目混进背包且可被丢弃。loader._validate 会拦截 cash 进物品池。
 
 armor:
   - id: leather_jacket

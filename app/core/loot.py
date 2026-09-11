@@ -98,10 +98,12 @@ def grant(
 def remove(state: dict, item_id: str, qty: int = 1) -> bool:
     """移除物品。武器/护甲按 id 移除第一个匹配项。现金走独立计数。"""
     if item_id == "cash":
-        have = int(state.get("cash", 0))
+        # 旧局背包里可能遗留现金条目（cash 曾是物品），一并计入可用余额
+        have = int(state.get("cash", 0)) + count_legacy_inv(state)
         if have < qty:
             return False
         state["cash"] = have - int(qty)
+        _purge_legacy_inv(state)
         return True
     for i, e in enumerate(state["inventory"]):
         if e["id"] != item_id:
@@ -117,9 +119,22 @@ def remove(state: dict, item_id: str, qty: int = 1) -> bool:
 def count(state: dict, item_id: str) -> int:
     """现金从独立计数读取；旧局背包里的现金条目也算数（向下兼容）。"""
     if item_id == "cash":
-        inv = sum(e["qty"] for e in state["inventory"] if e["id"] == "cash")
-        return int(state.get("cash", 0)) + inv
+        return int(state.get("cash", 0)) + count_legacy_inv(state)
     return sum(e["qty"] for e in state["inventory"] if e["id"] == item_id)
+
+
+def count_legacy_inv(state: dict) -> int:
+    """旧局背包遗留的现金条目数量（cash 曾是 material 类物品）。"""
+    return sum(
+        e["qty"] for e in state.get("inventory", []) if e.get("id") == "cash"
+    )
+
+
+def _purge_legacy_inv(state: dict) -> None:
+    """清空背包里的遗留现金条目（花钱时优先消化它们）。"""
+    state["inventory"] = [
+        e for e in state.get("inventory", []) if e.get("id") != "cash"
+    ]
 
 
 def roll_loot(

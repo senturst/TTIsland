@@ -134,6 +134,12 @@ class GameConfig:
     def _validate(self) -> None:
         errs: list[str] = []
 
+        # 0. 现金是独立计数资源，绝不能以物品身份注册
+        if "cash" in self.items:
+            errs.append(
+                "cash 不应是物品（独立计数资源，不进背包）——请从 items.yaml 移除"
+            )
+
         # 1. 开局装备必须存在
         start_weapon = self.balance["player"]["start_weapon"]
         if start_weapon not in self.items:
@@ -148,6 +154,19 @@ class GameConfig:
             for iid in ids:
                 if iid not in self.items:
                     errs.append(f"loot.category_tables.{cat} 引用不存在的物品: {iid}")
+                elif iid == "cash":
+                    errs.append("loot.category_tables 不应包含 cash（独立计数资源）")
+
+        # 2b. 商店/天赋池等其余物品引用也不得含 cash
+        def _check_no_cash(where: str, ids) -> None:
+            for iid in ids or []:
+                if iid == "cash":
+                    errs.append(f"{where} 不应包含 cash（独立计数资源）")
+
+        _check_no_cash(
+            "merchant.other_pool",
+            (self.balance.get("merchant", {}).get("other_pool") or []),
+        )
 
         # 3. 每层遭遇表的怪物必须存在、层级配置必须完整
         enc = self.monsters_cfg["encounter_tables"]["per_level"]

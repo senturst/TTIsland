@@ -33,6 +33,20 @@ _MD_PATTERN = re.compile(r"[*`#\[\]<>]|```|^[-+]|^\d+\.")
 _EMOJI_PATTERN = re.compile(
     "[" "\U0001f300-\U0001faff" "\U00002600-\U000027bf" "\U0001f000-\U0001f2ff" "]"
 )
+_SENTENCE_END = "。！？!?"
+
+
+def _truncate_at_sentence(text: str, limit: int) -> str | None:
+    """在 limit 内找最后一个句末标点截断（保留完整句子）。
+    找不到任何句末标点（或截出的句子太短）时返回 None。"""
+    window = text[:limit]
+    for i in range(len(window) - 1, -1, -1):
+        if window[i] in _SENTENCE_END:
+            head = window[: i + 1].strip()
+            if len(head) >= 8:  # 至少像句话，避免截出一个"了。"
+                return head
+            return None
+    return None
 
 
 def _is_cjk(ch: str) -> bool:
@@ -62,11 +76,18 @@ def validate(text: str, content_type: str) -> tuple[bool, str]:
     if cjk < len(text) * 0.4:
         return False, text
 
-    # 长度
-    if len(text) > MAX_CHARS.get(content_type, 45) * 2:  # 宽松上限，先砍明显的长尾
-        return False, text
-    if len(text) > MAX_CHARS.get(content_type, 45):
-        return False, text
+    # 长度：超限不整段报废（那是白花一次 API 调用），优先在句末标点截断
+    limit = MAX_CHARS.get(content_type, 45)
+    if len(text) > limit * 2:
+        return False, text  # 长尾离谱，裁也裁不出可用短句
+    if len(text) > limit:
+        text = _truncate_at_sentence(text, limit)
+        if text is None:
+            return False, ""
+    # 截断后可能低于中文占比线，复查一次
+    cjk = sum(1 for c in text if _is_cjk(c))
+    if cjk < len(text) * 0.4:
+        return False, ""
 
     # 全角标点统一，避免混排
     text = text.replace(",", "，").replace(";", "；").replace(":", "：")
