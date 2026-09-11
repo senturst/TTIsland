@@ -1876,10 +1876,16 @@ class RunEngine:
         before = st["hp"]
         st["hp"] = min(st["hp_max"], st["hp"] + int(tpl.get("heal", 0)))
         old, new = self._add_infection(int(tpl.get("infection", 0)))
+        sta_before = st.get("stamina", 0)
         st["stamina"] = min(
-            self.cfg.balance["player"]["stamina"], st["stamina"] + int(tpl.get("stamina", 0))
+            self.cfg.balance["player"]["stamina"], sta_before + int(tpl.get("stamina", 0))
         )
-        self._log(f"你在火边坐了一会。（HP +{st['hp'] - before}，感染 {new - old}）")
+        # 每个效果都要有可见反馈——漏了体力的汇报，玩家会以为"加了但没生效"（罐头同款教训）
+        parts = [f"HP +{st['hp'] - before}", f"感染 {new - old}"]
+        sta_gain = st["stamina"] - sta_before
+        if sta_gain:
+            parts.append(f"体力 +{sta_gain}")
+        self._log(f"你在火边坐了一会。（{'，'.join(parts)}）")
 
         if self.rng.chance(float(tpl.get("ambush_chance", 0))):
             enemies = [combat.make_enemy(self.cfg, "walker", st["depth"]) for _ in range(2)]
