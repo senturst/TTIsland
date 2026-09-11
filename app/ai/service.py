@@ -112,16 +112,24 @@ class FlavorService:
             return _fallback(content_type, seed_key)
 
         max_tokens = client.MAX_CHARS.get(content_type, 40) * 2
-        try:
-            async with limiter.semaphore:
-                text, tin, tout = await asyncio.wait_for(
-                    client.chat(system, user, max_tokens=max_tokens, timeout=timeout),
-                    timeout=timeout + 1.0,
-                )
-        except Exception as exc:  # noqa: BLE001
-            log.info("AI 调用失败(%s): %s", content_type, type(exc).__name__)
-            limiter.breaker.record_failure()
-            return _fallback(content_type, seed_key)
+        text, tin, tout = "", 0, 0
+        # 推理模型（deepseek-flash）的 thinking 计入 max_tokens，偶尔把预算吃光导致
+        # content 为空。空输出不记熔断失败，换更大预算重试一次（成本极低：正文才 30 字）。
+        for attempt, budget in enumerate((max_tokens, 240)):
+            try:
+                async with limiter.semaphore:
+                    text, tin, tout = await asyncio.wait_for(
+                        client.chat(system, user, max_tokens=budget, timeout=timeout),
+                        timeout=timeout + 1.0,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                log.info("AI 调用失败(%s): %s", content_type, type(exc).__name__)
+                limiter.breaker.record_failure()
+                return _fallback(content_type, seed_key)
+            if text.strip():
+                break
+            if attempt == 0:
+                log.info("AI 返回空 content（推理吃满 %d 预算），加大预算重试", max_tokens)
 
         ok, cleaned = client.validate(text, content_type)
         if not ok:

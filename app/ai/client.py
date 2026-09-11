@@ -101,6 +101,12 @@ async def chat(
     """
     timeout = timeout if timeout is not None else settings.llm_timeout
 
+    # max_tokens 必须给足余量：deepseek-flash 是推理模型，thinking 阶段的
+    # reasoning_content 也计入 max_tokens。预算太小时（曾用 MAX_CHARS*2≈90）
+    # 推理就把预算吃光，finish_reason=length 且 content 返回空串——
+    # 症状是日志刷"AI 输出不合法: ''"。正文 ≤45 字，120 足够容纳推理+正文。
+    max_tokens = max(max_tokens, 120)
+
     payload = {
         "model": settings.llm_model,
         "messages": [
@@ -125,7 +131,10 @@ async def chat(
         resp.raise_for_status()
         data = resp.json()
 
-    text = data["choices"][0]["message"]["content"]
+    msg = data["choices"][0]["message"]
+    # content 可能缺失或为空（推理模型把预算耗在 reasoning 上时返回 ''）。
+    # 空内容交由上层 validate() 判非法并降级到模板——绝不能在这里抛 KeyError。
+    text = msg.get("content") or ""
     usage = data.get("usage") or {}
     tokens_in = int(usage.get("prompt_tokens") or estimate_tokens(system + user))
     tokens_out = int(usage.get("completion_tokens") or estimate_tokens(text))
