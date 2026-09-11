@@ -714,6 +714,8 @@ class RunEngine:
             "cost": max(1, int(round(value * discount))),
             "value": value,
             "kind": self.cfg.item_kind(iid),
+            # 每个商品槽只能成交一次（买或卖）：防"无限买同一件再卖回"刷钱
+            "sold": False,
         }
 
     def _roll_shop(self, mcfg: dict, discount: float) -> list[dict]:
@@ -1753,10 +1755,10 @@ class RunEngine:
             return
 
         # 感染商人规则：
-        #   血量 ≥ 50%（可配）最大生命 → 享受折扣价，首次成交时抽走「缺失的血量」；
+        #   血量 ≥ 50%（可配）最大生命 → 享受折扣价，**每次成交都抽走「缺失的血量」**
+        #   （只扣一次太便宜——玩家可以把血当货币反复换折扣）；
         #   血量不过半 → 仍可交易，但按原价（无折扣）、不抽血。
         #   折扣只在 shop 生成时应用，因此原价 = entry["value"]，现价 = entry["cost"]。
-        #   抽血每次进房只发生一次（hp_taken 标记），买多件不会重复被抽。
         full_price = False
         if m["type"] == "plagued":
             threshold = st["hp_max"] * float(
@@ -1765,10 +1767,9 @@ class RunEngine:
             if st["hp"] < threshold:
                 full_price = True
                 self._log("它盯着你失血的手臂嘶笑：这个状态没资格讲价——按原价来。")
-            elif not m.get("hp_taken"):
+            else:
                 hp_cost = max(1, st["hp_max"] - st["hp"])
                 st["hp"] = max(1, st["hp"] - hp_cost)
-                m["hp_taken"] = True
                 self._log(f"它伸手按在你胸口，把你缺的血全抽走了。（HP −{hp_cost}）")
         m["_full_price"] = full_price
 
@@ -1785,6 +1786,9 @@ class RunEngine:
             if not entry:
                 self._log("商人没有这个货。")
                 return
+            if entry.get("sold"):
+                self._log("那件货已经易主了。")
+                return
             # 感染商人血量不过半时按原价（value）；正常折扣价 = cost
             cost = int(entry["value"]) if m.get("_full_price") else int(entry["cost"])
             if loot.count(st, "cash") < cost:
@@ -1795,6 +1799,7 @@ class RunEngine:
             # 先拿后丢：直接成交入包（超容量由 bag_overflow 决策兜底）
             self._acquire(iid, 1)
             loot.remove(st, "cash", cost)
+            entry["sold"] = True  # 一件商品只卖一次，堵死"反复买同一件"的路
             self._log(f"你花 {cost} 现金换来了 {cfg.item(iid)['name']}。")
             return
 
@@ -1810,13 +1815,23 @@ class RunEngine:
             if kind in ("ammo", "consumable"):
                 self._log(f"{cfg.item(iid)['name']}不值当卖。")
                 return
+            # 该商人名下同款商品槽已成交（买走或卖出过）→ 不再收第二件，
+            # 堵死"买折价→卖回收价"的套利循环
+            if any(s["id"] == iid and s.get("sold") for s in m.get("shop", [])):
+                self._log("它的货架上这件已经有主了，不收第二件。")
+                return
             value = int(cfg.item(iid).get("value", 1))
             ratio = float(cfg.balance.get("merchant", {}).get("sell_ratio", 0.7))
             price = max(1, int(round(value * ratio)))
-            qty = loot.count(st, iid)
-            loot.remove(st, iid, qty)
-            loot.grant(cfg, st, "cash", price * qty)  # 现金独立计数，不进背包
-            self._log(f"你把 {cfg.item(iid)['name']}×{qty} 卖了 {price * qty} 现金。")
+            # 每次只卖 1 件（此前整组堆叠一起卖，既不直观也让回收价失真）
+            loot.remove(st, iid, 1)
+            loot.grant(cfg, st, "cash", price)  # 现金独立计数，不进背包
+            # 该商人名下同款商品槽标记为已成交——卖出去的东西不回货架、不能回购，
+            # 商人也不再收第二件同款（防"买折价→卖回收价"套利）
+            for s in m.get("shop", []):
+                if s["id"] == iid:
+                    s["sold"] = True
+            self._log(f"你把 {cfg.item(iid)['name']} 卖了 {price} 现金。")
             return
 
         if choice == "mercy":
@@ -1900,7 +1915,7 @@ class RunEngine:
         self._log("* 你抓住起落架，被拉进了机舱。城市在下面越来越小。 *")
         self._log(f"** 撤离成功。最终得分 {st['score']} **")
         st["pending_decision"] = "legacy"
-        st["legacy_choices"] = self._legacy_candidates()
+        st["legacy_choices"] = self._legacy_candidates(escaped=True)
         if st["legacy_choices"]:
             self._log("你能带走的只有一样。选一个：")
         raise RunEnded("escaped")
@@ -1985,8 +2000,11 @@ class RunEngine:
     # ==================================================================
     # 死亡与结算
     # ==================================================================
-    def _legacy_blocked(self) -> list[str]:
-        """身上有、但因为品质太高而不能带走的物品名。"""
+    def _legacy_blocked(self, escaped: bool = False) -> list[str]:
+        """身上有、但因为品质太高而不能带走的物品名。
+
+        撤离成功时 T3 武器可以继承（玩家应得的通关奖励），不再列入 blocked。
+        """
         st = self.state
         names: list[str] = []
         ids = []
@@ -1996,20 +2014,29 @@ class RunEngine:
             ids.append(st["armor"]["id"])
         ids += [e["id"] for e in st["inventory"]]
         for iid in ids:
-            if self.cfg.item_kind(iid) in ("weapon", "armor") and not self.cfg.legacy_allowed(iid):
+            if self.cfg.item_kind(iid) in ("weapon", "armor") and not self._legacy_allowed(iid, escaped):
                 nm = self.cfg.item(iid)["name"]
                 if nm not in names:
                     names.append(nm)
         return names
 
-    def _legacy_candidates(self) -> list[dict]:
-        """可选作遗物的物品。重火力（tier 3）与消耗品不在其中。"""
+    def _legacy_allowed(self, iid: str, escaped: bool = False) -> bool:
+        """遗物资格。撤离成功时放宽：T3 武器也可继承（通关奖励）；
+        消耗品/弹药等 excluded kinds 仍然不行。死亡时维持原规则（T3 不可带）。"""
+        if escaped and self.cfg.item_kind(iid) == "weapon":
+            excluded = set(self.cfg.items_cfg.get("legacy_exclude_kinds") or [])
+            return self.cfg.item_kind(iid) not in excluded
+        return self.cfg.legacy_allowed(iid)
+
+    def _legacy_candidates(self, escaped: bool = False) -> list[dict]:
+        """可选作遗物的物品（单件）。消耗品不在其中；
+        死亡时重火力（tier 3）不可选，撤离成功时 T3 武器可选。"""
         st = self.state
         out: list[dict] = []
         seen: set[str] = set()
 
         def _entry(iid: str, durability: int | None, passes: int) -> None:
-            if iid in seen or not self.cfg.legacy_allowed(iid):
+            if iid in seen or not self._legacy_allowed(iid, escaped):
                 return
             seen.add(iid)
             out.append({
@@ -2027,6 +2054,7 @@ class RunEngine:
         if a:
             _entry(a["id"], None, int(a.get("passes", 0)))
         for e in st["inventory"]:
+            # 堆叠物资只出现一个候选（继承也只带一件，qty 不随组带走）
             _entry(e["id"], e.get("durability"), int(e.get("passes", 0)))
 
         # 普通在前，稀有在后——列表顺序不应该诱导玩家选最强的
@@ -2068,7 +2096,7 @@ class RunEngine:
         )
         st["epitaph"] = epitaph
         st["pending_decision"] = "legacy"
-        st["legacy_choices"] = self._legacy_candidates()
+        st["legacy_choices"] = self._legacy_candidates(escaped=False)
         if st["legacy_choices"]:
             self._log("你最后能留下的只有一样东西。选一个：")
 
@@ -2188,6 +2216,7 @@ class RunEngine:
                                 "kind": s["kind"],
                                 "cost": int(s["cost"]),
                                 "value": int(s["value"]),
+                                "sold": bool(s.get("sold")),
                                 "desc": _item_desc(self.cfg.item(s["id"]), s["kind"]),
                             }
                             for s in m.get("shop", [])
@@ -2243,8 +2272,8 @@ class RunEngine:
                  "passes": c.get("passes", 0)}
                 for i, c in enumerate(st.get("legacy_choices") or [])
             ],
-            # 重火力带不走，得让玩家知道原因，否则会以为掷弹枪被系统吞了
-            "legacy_blocked": self._legacy_blocked(),
+            # 重火力带不走，得让玩家知道原因（撤离时 T3 武器可带，不算 blocked）
+            "legacy_blocked": self._legacy_blocked(escaped=st.get("status") == "escaped"),
             "pending_decision": st.get("pending_decision"),
         }
 

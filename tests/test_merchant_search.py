@@ -153,19 +153,22 @@ def test_merchant_sell_grants_cash():
 
         await eng._act_merchant({"choice": "sell", "item": "dog_tag"})
         after = loot.count(eng.state, "cash")
-        assert after > before, "出售应换得现金"
-        assert loot.count(eng.state, "dog_tag") == 0, "出售后库存应清空"
+        value = int(cfg.item("dog_tag").get("value", 1))
+        ratio = float(cfg.balance.get("merchant", {}).get("sell_ratio", 0.7))
+        price = max(1, int(round(value * ratio)))
+        assert after == before + price, f"出售应换得单件回收价 {price}，实际 {before}→{after}"
+        assert loot.count(eng.state, "dog_tag") == 2, "单件出售：3 件应剩 2 件"
 
     asyncio.run(run())
 
 
 def test_merchant_plagued_min_hp_and_hp_cost():
-    """感染商人：血量 ≥ 50% 可折扣交易，首次成交抽走「缺失的血量」；多件不重复抽。"""
+    """感染商人：血量 ≥ 25%（可配）最大生命可折扣交易，**每次成交都抽走「缺失的血量」**。"""
     cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        # 25/40 = 62.5% ≥ 50% 门槛：可交易，首次抽走缺失的 15 点
+        # 25/40 = 62.5% ≥ 25% 门槛：可交易，首次抽走缺失的 15 点
         eng.state["hp"] = 25
         eng.state["hp_max"] = 40
         m = _enter_merchant_room(eng, plagued=True)
@@ -179,31 +182,83 @@ def test_merchant_plagued_min_hp_and_hp_cost():
         # 开局自带 1 个 bandage，买 1 个后应为 2
         assert loot.count(eng.state, "bandage") == 2, "应买到 1 个 bandage"
 
-        # 第二次购买：不再抽血（hp_taken 已标记），hp 保持 10
+        # 第二次购买同款 → 已易主，无法再买（每商品只成交一次）
         await eng._act_merchant({"choice": "buy", "item": "bandage"})
-        assert eng.state["hp"] == 10, "第二次交易不应再抽血"
-        assert loot.count(eng.state, "bandage") == 3
+        assert any("易主" in line for line in eng._out), eng._out
+        assert loot.count(eng.state, "bandage") == 2, "已售商品不能回购"
+
+    asyncio.run(run())
+
+
+def test_merchant_plagued_hp_drains_every_trade():
+    """感染商人：每次成交都抽血（血是折扣的持续成本，不是一次性门票）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["hp"] = 30
+        eng.state["hp_max"] = 40  # 75% ≥ 25% 门槛
+        m = _enter_merchant_room(eng, plagued=True)
+        # 两件不同商品，逐个买
+        m["shop"] = [
+            {"id": "bandage", "cost": 2, "value": 3, "kind": "consumable"},
+            {"id": "canned", "cost": 2, "value": 3, "kind": "consumable"},
+        ]
+        loot.grant(cfg, eng.state, "cash", 10)
+
+        await eng._act_merchant({"choice": "buy", "item": "bandage"})
+        assert eng.state["hp"] == 20, f"第一次成交应抽 10 点（30→20），实际 {eng.state['hp']}"
+        await eng._act_merchant({"choice": "buy", "item": "canned"})
+        # 规则是「抽走全部缺失血量」：hp=20 时缺失 20 点 → 抽到只剩 1
+        assert eng.state["hp"] == 1, f"第二次成交应抽到只剩 1（20→1），实际 {eng.state['hp']}"
+
+    asyncio.run(run())
+
+
+def test_merchant_sell_rejects_after_same_item_sold():
+    """商人名下同款商品槽已成交后，不再收购同款（防买折价→卖回收价套利）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        m = _enter_merchant_room(eng)
+        m["shop"] = [{"id": "dog_tag", "cost": 2, "value": 5, "kind": "trinket"}]
+        ratio = float(cfg.balance.get("merchant", {}).get("sell_ratio", 0.7))
+        loot.grant(cfg, eng.state, "dog_tag", 2)
+        loot.grant(cfg, eng.state, "cash", 10)
+        before = loot.count(eng.state, "cash")
+
+        # 先卖一件：成交，货架同款标记 sold
+        await eng._act_merchant({"choice": "sell", "item": "dog_tag"})
+        assert loot.count(eng.state, "cash") > before, "第一件应正常成交"
+
+        # 再卖第二件：同款槽已 sold，拒收
+        await eng._act_merchant({"choice": "sell", "item": "dog_tag"})
+        assert any("不收第二件" in line for line in eng._out), eng._out
+        assert loot.count(eng.state, "dog_tag") == 1, "第二件应拒收"
+        price = max(1, int(round(int(cfg.item("dog_tag")["value"]) * ratio)))
+        assert loot.count(eng.state, "cash") == before + price, "拒收后现金只含第一件的回收价"
 
     asyncio.run(run())
 
 
 def test_merchant_plagued_full_price_when_low():
-    """感染商人：血量不过半仍可交易，但按原价（value）且不抽血。"""
+    """感染商人：血量低于门槛（默认 25%）仍可交易，但按原价（value）且不抽血。"""
     cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["hp"] = 10
-        eng.state["hp_max"] = 40  # 25% < 50% 门槛
+        eng.state["hp"] = 5
+        eng.state["hp_max"] = 40  # 12.5% < 25% 门槛
         m = _enter_merchant_room(eng, plagued=True)
         m["shop"] = [{"id": "bandage", "cost": 2, "value": 5, "kind": "consumable"}]
         loot.grant(cfg, eng.state, "cash", 20)
 
         await eng._act_merchant({"choice": "buy", "item": "bandage"})
         assert any("按原价" in line for line in eng._out), eng._out
-        assert eng.state["hp"] == 10, "原价交易不应抽血"
         assert loot.count(eng.state, "cash") == 15, "应按原价 5 扣款（20-5=15）"
         assert loot.count(eng.state, "bandage") == 2, "应买到 1 个 bandage"
+        assert eng.state["hp"] == 5, "原价交易不应抽血"
 
     asyncio.run(run())
 
@@ -378,7 +433,11 @@ if __name__ == "__main__":
     test_merchant_sell_grants_cash()
     print("✓ 出售道具换现金")
     test_merchant_plagued_min_hp_and_hp_cost()
-    print("✓ 感染商人半血可交易且抽走缺失血量")
+    print("✓ 感染商人折扣交易抽走缺失血量 + 已售商品不可回购")
+    test_merchant_plagued_hp_drains_every_trade()
+    print("✓ 感染商人每次成交都抽血")
+    test_merchant_sell_rejects_after_same_item_sold()
+    print("✓ 同款商品槽成交后拒收第二件")
     test_merchant_plagued_full_price_when_low()
     print("✓ 感染商人血量不过半按原价交易")
     test_grave_pick_ranged_weapon()

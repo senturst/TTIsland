@@ -28,7 +28,16 @@ def on_enter_level(cfg: GameConfig, state: dict, level: int) -> list[str]:
     lines: list[str] = []
 
     state["depth"] = level
-    state["noise"] = float(t.get("on_enter_level", {}).get("noise", 0))
+    # 噪音跨层保留：默认只降 40%（×0.6），除非主题显式指定开局噪音（如警报层）
+    noise_cfg = cfg.balance.get("noise", {})
+    t_noise = t.get("on_enter_level", {}).get("noise")
+    if t_noise is not None:
+        state["noise"] = float(t_noise)
+    else:
+        keep = float(noise_cfg.get("keep_ratio_on_enter", 0.1))
+        cap = noise_cfg.get("carry_cap_on_enter")
+        carried = float(state.get("noise", 0)) * keep
+        state["noise"] = min(carried, float(cap)) if cap is not None else round(carried, 1)
     state["horde"] = False
     state["campfire_used"] = False
 

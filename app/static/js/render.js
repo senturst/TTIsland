@@ -257,6 +257,7 @@ export function renderPack(onAction) {
   // 修理换算（服务端下发）：修 1 点耐久各资源的单价
   const rates = state.repairRates || {};
   const scrapPer = rates.scrap_per_point ?? 1;
+  const scrapQty = state.scrap ?? 0;
 
   for (const it of entries) {
     // 有未决决策（选天赋/遗物/尸化/捡尸/背包满等）时，随身面板一律不可点。
@@ -469,20 +470,30 @@ export function renderMerchant(onAction) {
       const price = fullPrice ? s.value : s.cost;
       const canAfford = cash >= price;
       const mercyItem = m.authors_mercy && !m.mercy_taken;
-      const priceNote = fullPrice
-        ? `原价 💰 ${s.value}（无折扣）`
-        : `💰 ${s.cost}${s.value !== s.cost ? `（值 ${s.value}）` : ""}`;
+      const soldOut = !!s.sold;
+      const priceNote = soldOut
+        ? `已售出`
+        : fullPrice
+          ? `原价 💰 ${s.value}（无折扣）`
+          : `💰 ${s.cost}${s.value !== s.cost ? `（值 ${s.value}）` : ""}`;
       card.innerHTML =
         `<span class="mch-name">${iconFor(s.id) || "📦"} ${s.name}</span>` +
         `<span class="mch-desc">${s.desc || ""}</span>` +
         `<span class="mch-cost">${priceNote}</span>`;
-      if (mercyItem) {
+      if (mercyItem && !soldOut) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "btn btn-primary mch-btn";
         b.textContent = "免费拿（怜悯）";
         b.disabled = state.busy;
         b.addEventListener("click", () => onAction({ id: "merchant", choice: "mercy", item: s.id }));
+        card.appendChild(b);
+      } else if (soldOut) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn-ghost mch-btn";
+        b.textContent = "已售出";
+        b.disabled = true;
         card.appendChild(b);
       } else {
         const b = document.createElement("button");
@@ -548,10 +559,10 @@ export function renderMerchant(onAction) {
     for (const i of sellable) {
       const card = document.createElement("div");
       card.className = "mch-card";
-      const total = (i.sell || 0) * i.qty;
+      // 每次只卖 1 件；该商人不再收购已成交过的同款（防折价买→回收卖套利）
       card.innerHTML =
         `<span class="mch-name">${iconFor(i.id) || "📦"} ${i.name}${i.qty > 1 ? ` ×${i.qty}` : ""}</span>` +
-        `<span class="mch-desc">回收 💰 ${total}</span>`;
+        `<span class="mch-desc">回收 💰 ${i.sell}（卖 1 件）</span>`;
       const b = document.createElement("button");
       b.type = "button";
       b.className = "btn btn-ghost mch-btn";

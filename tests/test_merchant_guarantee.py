@@ -25,13 +25,15 @@ def _merchant_counts(cfg, level: int) -> list[int]:
     return out
 
 
-def test_levels_1_to_4_always_have_two_merchants():
-    """1-4 层每张图必须恰好 2 个商人房（保底 + 权重可能超出时不设上限）。"""
+def test_merchant_guarantee_per_level():
+    """按配置验证各层商人保底：guarantee 值 N → 该层每张图至少 N 个商人房。"""
     cfg = get_config()
+    guarantee = cfg.balance["mapgen"]["merchant_guarantee"]
     for level in (1, 2, 3, 4):
+        need = int(guarantee.get(str(level), guarantee.get(level, 0)))
         counts = _merchant_counts(cfg, level)
-        assert all(c >= 2 for c in counts), (
-            f"L{level} 有图缺商人房：{[c for c in counts if c < 2][:5]}"
+        assert all(c >= need for c in counts), (
+            f"L{level} 保底 {need}，有图缺商人房：{[c for c in counts if c < need][:5]}"
         )
 
 
@@ -72,8 +74,8 @@ def test_stairs_and_campfire_never_converted():
 
 
 if __name__ == "__main__":
-    test_levels_1_to_4_always_have_two_merchants()
-    print("ok 1-4 层每图至少 2 个商人房")
+    test_merchant_guarantee_per_level()
+    print("ok 各层商人保底符合配置")
     test_merchant_room_types_are_unique_per_level()
     print("ok 商人房不重复")
     test_level_5_has_no_guarantee()
