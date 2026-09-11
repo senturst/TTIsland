@@ -376,7 +376,7 @@ export function renderMerchant(onAction) {
     const bits = [];
     if (m.discount && m.discount < 1) bits.push(`全部 ${Math.round(m.discount * 100)}% 折扣`);
     if (m.authors_mercy && !m.mercy_taken) bits.push("今天他破例送你一件");
-    if (m.trade_blocked) bits.push("⚠ 需满血才能交易（每次抽走 50% 最大生命）");
+    if (m.trade_blocked) bits.push("⚠ 血量需过半才能交易（成交时缺多少血抽多少）");
     note.textContent = bits.join(" · ");
   }
 
@@ -414,7 +414,7 @@ export function renderMerchant(onAction) {
         b.className = "btn btn-primary mch-btn";
         b.textContent = "购买";
         b.disabled = !canAfford || state.busy;
-        b.title = blocked ? "满血才能交易" : (cash < s.cost ? "现金不够" : "");
+        b.title = blocked ? "血量需过半才能交易" : (cash < s.cost ? "现金不够" : "");
         b.addEventListener("click", () => onAction({ id: "merchant", choice: "buy", item: s.id }));
         card.appendChild(b);
       }
@@ -443,14 +443,14 @@ export function renderMerchant(onAction) {
       bs.className = "btn btn-safe mch-btn";
       bs.textContent = `废铁修（🧱 ${r.scrap_cost}）`;
       bs.disabled = !canScrap || state.busy;
-      bs.title = blocked ? "满血才能交易" : (scrap < r.scrap_cost ? "废铁不够" : "每次修理会降低耐久上限");
+      bs.title = blocked ? "血量需过半才能交易" : (scrap < r.scrap_cost ? "废铁不够" : "每次修理会降低耐久上限");
       bs.addEventListener("click", () => onAction({ id: "merchant", choice: "repair", item: r.id, pay: "scrap" }));
       const bc = document.createElement("button");
       bc.type = "button";
       bc.className = "btn btn-safe mch-btn";
       bc.textContent = `现金修（💰 ${r.cash_cost}）`;
       bc.disabled = !canCash || state.busy;
-      bc.title = blocked ? "满血才能交易" : (cash < r.cash_cost ? "现金不够" : "每次修理会降低耐久上限");
+      bc.title = blocked ? "血量需过半才能交易" : (cash < r.cash_cost ? "现金不够" : "每次修理会降低耐久上限");
       bc.addEventListener("click", () => onAction({ id: "merchant", choice: "repair", item: r.id, pay: "cash" }));
       card.append(bs, bc);
       repBox.appendChild(card);
@@ -477,7 +477,7 @@ export function renderMerchant(onAction) {
       b.className = "btn btn-ghost mch-btn";
       b.textContent = "出售";
       b.disabled = state.busy || blocked;
-      b.title = blocked ? "满血才能交易" : "";
+      b.title = blocked ? "血量需过半才能交易" : "";
       b.addEventListener("click", () => onAction({ id: "merchant", choice: "sell", item: i.id }));
       card.appendChild(b);
       sellBox.appendChild(card);

@@ -152,18 +152,45 @@ def test_merchant_sell_grants_cash():
     asyncio.run(run())
 
 
-def test_merchant_plagued_requires_full_hp():
+def test_merchant_plagued_min_hp_and_hp_cost():
+    """感染商人：血量 ≥ 50% 最大生命即可交易；成交时抽走「缺失的血量」。"""
     cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["hp"] = 5
-        eng.state["hp_max"] = 20  # 不满血
+        # 25/40 = 62.5% ≥ 50% 门槛：可交易，抽走缺失的 15 点
+        eng.state["hp"] = 25
+        eng.state["hp_max"] = 40
+        m = _enter_merchant_room(eng, plagued=True)
+        m["shop"] = [{"id": "bandage", "cost": 2, "value": 3, "kind": "consumable"}]
+        loot.grant(cfg, eng.state, "cash", 10)
+
+        await eng._act_merchant({"choice": "buy", "item": "bandage"})
+        assert any("缺的血全抽走" in line for line in eng._out), eng._out
+        assert eng.state["hp"] == 10, f"应抽走缺失的 15 点（25→10），实际 {eng.state['hp']}"
+        assert loot.count(eng.state, "cash") == 8, "应按折扣价扣现金"
+        # 开局自带 1 个 bandage，买 1 个后应为 2
+        assert loot.count(eng.state, "bandage") == 2, "应买到 1 个 bandage"
+
+    asyncio.run(run())
+
+
+def test_merchant_plagued_rejects_below_half_hp():
+    """感染商人：血量低于 50% 最大生命 → 拒绝交易且不扣血。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["hp"] = 10
+        eng.state["hp_max"] = 40  # 25% < 50% 门槛
         m = _enter_merchant_room(eng, plagued=True)
         m["shop"] = [{"id": "bandage", "cost": 2, "value": 3, "kind": "consumable"}]
 
         await eng._act_merchant({"choice": "buy", "item": "bandage"})
-        assert any("不肯做买卖" in line for line in eng._out), eng._out
+        assert any("至少要保有" in line for line in eng._out), eng._out
+        assert eng.state["hp"] == 10, "拒绝交易不应扣血"
+        # 开局自带 1 个 bandage，拒绝交易后不应增加
+        assert loot.count(eng.state, "bandage") == 1, "拒绝交易不应拿到货"
 
     asyncio.run(run())
 
@@ -294,8 +321,10 @@ if __name__ == "__main__":
     print("✓ 商人面板状态（merchant/repair_options）正确暴露")
     test_merchant_sell_grants_cash()
     print("✓ 出售道具换现金")
-    test_merchant_plagued_requires_full_hp()
-    print("✓ 感染商人需满血才交易")
+    test_merchant_plagued_min_hp_and_hp_cost()
+    print("✓ 感染商人半血可交易且抽走缺失血量")
+    test_merchant_plagued_rejects_below_half_hp()
+    print("✓ 感染商人血量不过半拒绝交易")
     test_grave_pick_ranged_weapon()
     print("✓ 墓碑可拾取远程武器")
     test_grave_pool_eligibility()

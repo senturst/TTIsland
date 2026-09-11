@@ -699,7 +699,7 @@ class RunEngine:
         if is_plagued:
             self._log(
                 "一个浑身溃烂的身影挡在路中间，皮肤下有什么在蠕动："
-                "「想活命？拿你的命来换。」（交易需满血，每次抽取 50% 最大生命）"
+                "「想活命？拿你的命来换。」（血量过半即可交易，成交时你缺多少血它抽多少）"
             )
         else:
             self._log("他摊开一块破布，上面零零碎碎全是货：「废铁换命，懂？」")
@@ -1784,16 +1784,22 @@ class RunEngine:
             self._log("你冲商人点了点头，继续往前走。")
             return
 
-        # 感染商人：交易需满血，每次抽取 50%（可配）最大生命
+        # 感染商人：血量 ≥ 50%（可配）最大生命才可交易；成交时抽走「缺失的血量」
+        # （即补满所需的量）作为代价——半血来交易就只抽一半，满血交易抽满额。
         if m["type"] == "plagued":
-            if st["hp"] < st["hp_max"]:
-                self._log("你的血没回满，它不肯做买卖——只有满血才付得起它的价。")
+            threshold = st["hp_max"] * float(
+                cfg.balance.get("merchant", {}).get("plagued", {}).get("min_hp_pct", 0.5)
+            )
+            if st["hp"] < threshold:
+                pct = int(float(cfg.balance.get("merchant", {})
+                                .get("plagued", {}).get("min_hp_pct", 0.5)) * 100)
+                self._log(
+                    f"你的血流得太多，它嫌你付不起价——生命至少要保有 {pct}% 才能交易。"
+                )
                 return
-            hp_cost = max(1, int(round(
-                st["hp_max"] * float(cfg.balance.get("merchant", {})
-                .get("plagued", {}).get("hp_cost_pct", 0.5)))))
+            hp_cost = max(1, st["hp_max"] - st["hp"])
             st["hp"] = max(1, st["hp"] - hp_cost)
-            self._log(f"它伸手按在你胸口，抽走 {hp_cost} 点生命。（HP −{hp_cost}）")
+            self._log(f"它伸手按在你胸口，把你缺的血全抽走了。（HP −{hp_cost}）")
 
         if choice == "repair":
             iid = payload.get("item")
@@ -2201,7 +2207,10 @@ class RunEngine:
                         "authors_mercy": bool(m.get("authors_mercy")),
                         "mercy_taken": bool(m.get("mercy_taken")),
                         "trade_blocked": (
-                            m["type"] == "plagued" and st["hp"] < st["hp_max"]
+                            m["type"] == "plagued"
+                            and st["hp"] < st["hp_max"] * float(
+                                cfg.balance.get("merchant", {})
+                                .get("plagued", {}).get("min_hp_pct", 0.5))
                         ),
                         "shop": [
                             {
