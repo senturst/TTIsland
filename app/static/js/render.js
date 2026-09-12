@@ -274,6 +274,8 @@ function heldEntries() {
       wear: state.weapon.durability != null ? state.weapon.durability : null,
       maxWear: state.weapon.max_durability != null ? state.weapon.max_durability : null,
       tier: state.weapon.tier ?? null,
+      mag_size: state.weapon.mag_size ?? 0,
+      clip_count: state.weapon.clip_count ?? 0,
       desc: state.weapon.desc || null,
     });
   }
@@ -398,13 +400,34 @@ export function renderPack(onAction) {
       w.title = "剩余耐久";
       node.appendChild(w);
     }
+    // P9 弹匣：手持远程武器显示弹匣状态
+    if (it.held && it.slot === "weapon" && (it.mag_size ?? 0) > 0) {
+      const m = document.createElement("span");
+      m.className = "wear";
+      m.textContent = `弹匣 ${it.clip_count ?? 0}/${it.mag_size}`;
+      m.title = "弹匣内子弹（装填后可射击）";
+      node.appendChild(m);
+    }
 
-    // 数值摘要：不用真的用一次，也能看到道具干了什么、数值多少
+    // P9 装填：手持远程武器且弹匣未满 → 装填入口（打开装填面板）
+    if (it.held && it.slot === "weapon" && (it.mag_size ?? 0) > 0
+        && (it.clip_count ?? 0) < it.mag_size && !locked) {
+      const rl = document.createElement("button");
+      rl.type = "button";
+      rl.className = "btn btn-safe pack-fix";
+      rl.textContent = `装填 ${it.clip_count ?? 0}/${it.mag_size}`;
+      rl.disabled = state.busy;
+      rl.title = "从背包选择弹药装填弹匣";
+      rl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onAction({ id: "reload" });
+      });
+      node.appendChild(rl);
+    }
+
+    // 数值摘要：九宫格卡片内不放整行描述——收进悬停 title
     if (it.desc) {
-      const d = document.createElement("span");
-      d.className = "desc";
-      d.textContent = it.desc;
-      node.appendChild(d);
+      node.title = node.title ? `${node.title} · ${it.desc}` : it.desc;
     }
 
     if (canAct) {
@@ -1034,7 +1057,74 @@ export function renderAll(onAction) {
   renderMerchant(onAction);
   renderNpc(onAction);
   renderEvacCarry(onAction);
+  renderReloadPanel(onAction);
   renderCommands(onAction);
+}
+
+// ------------------------------------------------------------------
+// P9 装填面板：为手持远程武器选择弹种装填弹匣
+let reloadPanelOpen = false;
+
+export function openReloadPanel() {
+  if (!state.weapon?.ranged) return;
+  reloadPanelOpen = true;
+  renderAll(lastOnAction);
+}
+
+function closeReloadPanel() {
+  reloadPanelOpen = false;
+  const el = document.getElementById("reload-panel");
+  if (el) el.classList.add("hidden");
+}
+
+export function renderReloadPanel(onAction) {
+  const w = state.weapon;
+  const inReload = reloadPanelOpen && !!w?.ranged && !state.pendingDecision;
+  show("reload-panel", inReload);
+  if (reloadPanelOpen && !inReload) reloadPanelOpen = false;
+  if (!inReload) return;
+
+  const size = w.mag_size ?? 0;
+  const count = w.clip_count ?? 0;
+  const types = state.ammoTypes || [];
+
+  document.getElementById("reload-title").textContent = `装填 · ${w.name}`;
+  const sub = document.getElementById("reload-sub");
+  const curName = (types.find((t) => t.id === w.clip_ammo) || {}).name;
+  sub.textContent = `弹匣 ${count}/${size}${curName ? ` · 当前：${curName}` : " · 空弹匣"}（换弹种时旧弹退回背包）`;
+
+  const box = document.getElementById("reload-rows");
+  box.textContent = "";
+  const owned = types.filter((t) => t.count > 0).sort((a, b) => b.tier - a.tier);
+  if (!owned.length) {
+    const none = document.createElement("span");
+    none.className = "pack-empty";
+    none.textContent = "背包里没有任何弹药。";
+    box.appendChild(none);
+  }
+  for (const t of owned) {
+    const card = document.createElement("div");
+    card.className = "mch-card";
+    const full = count >= size && w.clip_ammo === t.id;
+    const card2 = document.createElement("span");
+    card2.className = "mch-name";
+    card2.textContent = `${t.name}（伤害 ${Math.round(t.dmg_mult * 100)}%）`;
+    const card3 = document.createElement("span");
+    card3.className = "mch-desc";
+    card3.textContent = `背包存量 ×${t.count}`;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn btn-primary mch-btn";
+    const load = Math.min(t.count, size - (w.clip_ammo === t.id ? count : 0));
+    b.textContent = full ? "已满" : `装填 ${load} 发`;
+    b.disabled = state.busy || full || load <= 0;
+    b.addEventListener("click", () =>
+      onAction({ id: "reload", ammo: t.id })
+    );
+    card.append(card2, card3, b);
+    box.appendChild(card);
+  }
+  bindReloadClose(onAction);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1131,6 +1221,14 @@ export function renderEvacCarry(onAction) {
   }
 }
 
+function bindReloadClose(onAction) {
+  const close = document.getElementById("reload-close");
+  if (close) {
+    close.disabled = state.busy;
+    close.onclick = () => closeReloadPanel();
+  }
+}
+
 export function setBusy(busy) {
   state.busy = busy;
   // 必须同时覆盖命令区与商人/幸存者面板：consume() 在 setBusy(false) 之前调用 renderAll()，
@@ -1140,7 +1238,7 @@ export function setBusy(busy) {
   // 漏恢复会让丢弃按钮永远点不了（玩家看起来就是"按钮被挡住了"）。
   const buttons = document.querySelectorAll(
     "#cmd-buttons .btn, #merchant .mch-btn, #npc .mch-btn, .pack-item .pack-drop, .pack-item .pack-fix, " +
-    ".side-cell .pack-drop, .side-cell .pack-fix, #evac-carry .mch-btn, .carry-confirm"
+    ".side-cell .pack-drop, .side-cell .pack-fix, #evac-carry .mch-btn, .carry-confirm, #reload-panel .mch-btn"
   );
   buttons.forEach((b) => { b.disabled = busy; });
 }

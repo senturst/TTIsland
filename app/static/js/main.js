@@ -5,7 +5,7 @@ import { state, mutate, applyServerState } from "./state.js";
 import { initTerm, appendLine, playLines, skipTyping, patchLine } from "./term.js";
 import {
   renderAll, setBusy, flashHorde, setDegraded, pushWorldEvent, renderLeaderboard,
-  armGiveUp, giveUpArmed,
+  armGiveUp, giveUpArmed, openReloadPanel,
 } from "./render.js";
 
 let host = null;
@@ -49,6 +49,11 @@ function setupViewport() {
 /* ------------------------------------------------------------------ */
 async function handleAction(a) {
   if (state.busy) return;
+  // P9 装填：无 ammo 参数的 reload = 打开装填面板（纯前端，不耗回合）
+  if (a.id === "reload" && !a.ammo) {
+    openReloadPanel();
+    return;
+  }
   await send(a.id, {
     index: a.index,
     to: a.to,
@@ -60,6 +65,8 @@ async function handleAction(a) {
     weapon: a.weapon,
     gear: a.gear,
     other: a.other,
+    // P9 装填：选择的弹种 id
+    ammo: a.ammo,
   });
 }
 

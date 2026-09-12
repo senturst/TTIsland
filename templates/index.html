@@ -181,6 +181,23 @@
     <button class="btn btn-primary carry-confirm" id="carry-confirm" type="button">带好三样，跳下去</button>
   </section>
 
+  <!-- ============ 装填面板（P9）============
+       为手持远程武器选择弹种装填弹匣：从高到低逐行列出背包弹药。
+       战斗中装填消耗 1 回合；非战斗为整理动作（不推进任何计时）。 -->
+  <section class="merchant hidden" id="reload-panel">
+    <div class="merchant-head">
+      <span class="merchant-title" id="reload-title">装填</span>
+      <span class="merchant-note" id="reload-sub"></span>
+      <button class="btn btn-ghost merchant-leave" id="reload-close" type="button">关闭</button>
+    </div>
+    <div class="merchant-cols">
+      <div class="merchant-col">
+        <div class="merchant-col-title">背包弹药（高→低）</div>
+        <div class="merchant-shop" id="reload-rows"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============ 命令区 ============ -->
   <footer class="cmd" id="cmd" data-page-node-id="Bf1oywMCiGQdO5dTj6cx6q">
     <div class="cmd-buttons" id="cmd-buttons" data-page-node-id="CgNPExIjvwp3lm6vPolput"></div>

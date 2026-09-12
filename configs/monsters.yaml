@@ -222,12 +222,12 @@ monsters:
     <<: *base
     # 地区 2 楼梯守门精英：对位 gatekeeper（20hp/4-6/62命中/甲1）高一档
     hp: 30
-    dmg: [5, 8]
+    dmg: [2, 4]
     acc: 68
     eva: 5
     armor: 2
     speed: 6
-    archetype: brute
+    burst: [3, 6]
     bite_chance: 0.30
     bite_infection: [5, 9]
     elite: true
@@ -242,7 +242,7 @@ monsters:
     # 地区 2 Boss：装甲尸潮指挥官。对位暴君（65hp/6-9/75命中/甲2）压一档：
     # 血更厚、甲更硬，伤害峰值更高；两个技能循环（冲撞 + 尸潮践踏）。
     hp: 100
-    dmg: [2, 5]
+    dmg: [2, 6]
     acc: 72
     eva: 5
     armor: 3
@@ -253,7 +253,7 @@ monsters:
     xp: 80
     # 普通攻击 = 尸潮弹幕扫射（多发低伤，防弹衣逐发吸收）；
     # 技能（装甲冲撞/尸潮践踏）保留单发重击节奏
-    burst: [4, 6]
+    burst: [3, 6]
     abilities:
       - id: marshal_charge
         name: 装甲冲撞

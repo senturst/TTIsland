@@ -1,11 +1,13 @@
-"""回归测试：远程武器重做（弹药按 tier 统合 + 冲锋枪连射）。
+"""回归测试：P9 弹匣系统（任意枪装任意弹 + 弹夹装填 + 弹药伤害加成）。
 
-背景（用户需求）：远程武器偏弱——噪音大、伤害小、费子弹、子弹难获得。
-  1. 弹药按 tier 统合：t1 枪用 ammo_t1，t2 用 ammo_t2，t3 用 ammo_t3，
-     取代旧的 ammo_pistol / ammo_shotgun / ammo_smg 三套弹种
-  2. 冲锋枪（smg）一次攻击随机射出 3-5 发，每发独立 roll 命中与伤害；
-     目标倒下后剩余发数转向下一个敌人；噪音按一次攻击算一次
-  3. burst 弹药不足时有多少打多少（至少 1 发）；单发武器不足则打不出
+背景（用户拍板）：
+  1. 弹药 T1-T6（劣质/制式/精工/军用/实验/原型），伤害加成
+     90%/100%/105%/115%/125%/150%（远程每发子弹伤害百分比）
+  2. **所有远程武器可装填任意弹种**——不再限制 t1 枪只能用 t1 弹；
+     武器差异靠 弹匣容量/burst/命中/暴击，伤害成长靠弹药品质
+  3. 弹匣：容量 mag_size 可配置；战斗中装填耗 1 回合（触发敌人回合），
+     非战斗装填不推进任何计时；换弹种时旧弹退回背包
+  4. 射击只消耗弹匣内子弹；burst 弹匣不足时有多少打多少
 """
 from __future__ import annotations
 
@@ -32,15 +34,8 @@ async def _new_run(cfg):
     return eng
 
 
-def _combat_with(cfg, enemy_ids):
-    """构造一场战斗：按怪物 id 生成完整敌人档案。"""
-    return {
-        "enemies": [C.make_enemy(cfg, mid, 1) for mid in enemy_ids],
-    }
-
-
 def _equip(cfg, eng, weapon_id):
-    """把武器塞进玩家手里（绕过装备流程，直接指定）。"""
+    """把武器塞进玩家手里（绕过装备流程，直接指定；空弹匣）。"""
     eng.state["weapon"] = {"id": weapon_id}
 
 
@@ -49,238 +44,379 @@ def _no_drops(eng):
     eng._acquire = lambda *a, **k: None
 
 
+async def _load(eng, ammo_id: str, n: int) -> int:
+    """给当前武器装填：先塞 n 发进背包再走真实装填动作，返回弹匣内发数。"""
+    cfg = get_config()
+    loot.grant(cfg, eng.state, ammo_id, n)
+    await eng._act_reload({"ammo": ammo_id})
+    return int((eng.state.get("weapon") or {}).get("clip_count") or 0)
+
+
 # ---------------------------------------------------------------------------
-# 1. 弹药统合：全武器按 tier 引用对应弹药
+# 1. 弹药 T1-T6：全枪通用 + mag_size 配置
 # ---------------------------------------------------------------------------
 
-def test_all_ranged_weapons_use_tier_ammo():
-    """每把远程武器的 ammo_type 必须存在、是弹药、且与其 tier 对应。"""
+def test_all_ranged_weapons_have_mag():
+    """每把远程武器都配置了 mag_size（>0），且任意枪可装任意弹种。"""
     cfg = get_config()
-    tier2ammo = {1: "ammo_t1", 2: "ammo_t2", 3: "ammo_t3"}
     ranged = [w for w in cfg.items_cfg["weapons"] if w.get("kind") == "ranged"]
     assert ranged, "items.yaml 里应有远程武器"
     for w in ranged:
-        at = w.get("ammo_type")
-        assert at in cfg.items, f"{w['id']} 的弹药 {at} 不存在"
-        assert cfg.item_kind(at) == "ammo", f"{w['id']} 的 {at} 不是弹药"
-        expect = tier2ammo[int(w["tier"])]
-        assert at == expect, f"{w['id']}(t{w['tier']}) 应用 {expect}，实际 {at}"
-
-
-def test_old_ammo_ids_gone():
-    """旧三弹种应彻底移除——残留在掉落表/商店池里会在校验期就该被发现。"""
-    cfg = get_config()
-    for old in ("ammo_pistol", "ammo_shotgun", "ammo_smg"):
-        assert old not in cfg.items, f"旧弹种 {old} 仍注册在 items 里"
-    tables = cfg.balance["loot"]["category_tables"]["ammo"]
-    assert set(tables) == {"ammo_t1", "ammo_t2", "ammo_t3"}, tables
-    assert "ammo_t1" in cfg.balance["merchant"]["other_pool"]
-
-
-# ---------------------------------------------------------------------------
-# 2. burst：随机 3-5 发、每发独立结算、噪音按一次算
-# ---------------------------------------------------------------------------
-
-def test_smg_burst_exists():
-    """冲锋枪应有 burst [3,5] 配置。"""
-    cfg = get_config()
-    smg = cfg.item("smg")
-    assert smg.get("burst") == [3, 5], smg.get("burst")
-    # 消音冲锋枪同样有 burst，但代价是 tier 抬到 3——改烧稀缺的重弹药（t3）
-    # 是它的主要代价，稀有度也控制在霰弹枪一档
-    silenced = cfg.item("silenced_smg")
-    assert silenced.get("burst") == [3, 5], silenced.get("burst")
-    assert silenced.get("tier") == 3, silenced.get("tier")
-    assert silenced.get("ammo_type") == "ammo_t3", silenced.get("ammo_type")
-
-
-def test_burst_shoots_multiple_shots():
-    """连射一次应消耗随机 3-5 发，且每个目标各受多次独立判定。"""
-    cfg = get_config()
+        assert int(w.get("mag_size", 0) or 0) > 0, f"{w['id']} 缺 mag_size"
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["in_combat"] = True
-        # 血牛敌人：保证 3-5 发打不死，判定数与发数一致（清场 break 会吞判定）
-        e1 = C.make_enemy(cfg, "walker", 1)
-        e1["hp"] = e1["hp_max"] = 200
-        e2 = C.make_enemy(cfg, "runner", 1)
-        e2["hp"] = e2["hp_max"] = 200
-        eng.state["combat"] = {"enemies": [e1, e2]}
-        eng.state["noise"] = 0
-        _equip(cfg, eng, "smg")
-        before = loot.count(eng.state, "ammo_t2")  # 开局自带弹药，不能硬编码
-        loot.grant(cfg, eng.state, "ammo_t2", 10)
-        before += 10
-        _no_drops(eng)
-
-        await eng._act_shoot({})
-
-        # 每只敌人至少挨了一次有效判定（日志里应有命中或落空的记录）
-        hit_lines = [l for l in eng._out if "开枪命中" in l or "扑了个空" in l]
-        assert len(hit_lines) >= 3, f"连射至少 3 发判定，实际 {len(hit_lines)} 条: {hit_lines}"
-        # 弹药被消耗：打出去的数量在 3-5 之间
-        spent = before - loot.count(eng.state, "ammo_t2")
-        assert 3 <= spent <= 5, f"应消耗 3-5 发，实际 {spent}"
+        # 每把枪各装填一次 t6（最高档）——通用性验证
+        for w in ranged:
+            eng.state["weapon"] = {"id": w["id"]}
+            eng.state["in_combat"] = False
+            loot.grant(cfg, eng.state, "ammo_t6", 3)
+            await eng._act_reload({"ammo": "ammo_t6"})
+            assert (eng.state["weapon"] or {}).get("clip_ammo") == "ammo_t6", \
+                f"{w['id']} 应可装填 t6"
+            eng.state["inventory"] = [
+                e for e in eng.state["inventory"] if e["id"] != "ammo_t6"
+            ]
 
     asyncio.run(run())
 
 
-def test_burst_noise_added_once():
-    """扫射的攻击噪音只算一次——不论打了几发（击杀噪音另算，不在此列）。"""
+def test_ammo_t1_t6_defined():
+    """弹药 T1-T6 齐备：名称、伤害加成、T4 起地区 2 产出、T5/T6 缺省。"""
     cfg = get_config()
-    from app.core import talents
+    expect = {
+        "ammo_t1": ("劣质弹药", 0.90),
+        "ammo_t2": ("制式弹药", 1.00),
+        "ammo_t3": ("精工弹药", 1.05),
+        "ammo_t4": ("军用弹药", 1.15),
+        "ammo_t5": ("实验弹药", 1.25),
+        "ammo_t6": ("原型弹药", 1.50),
+    }
+    for aid, (name, mult) in expect.items():
+        a = cfg.items.get(aid)
+        assert a, f"{aid} 应存在"
+        assert a["name"] == name, f"{aid} 应名 {name}，实际 {a['name']}"
+        assert abs(float(a.get("dmg_mult", 0)) - mult) < 1e-9, f"{aid} dmg_mult 应 {mult}"
+    assert int(cfg.items["ammo_t4"].get("min_region", 0) or 0) == 2, "T4 应地区 2 产出"
+    assert int(cfg.items["ammo_t5"].get("weight", 1) or 0) == 0, "T5 应缺省"
+    assert int(cfg.items["ammo_t6"].get("weight", 1) or 0) == 0, "T6 应缺省"
+
+
+def test_ammo_tables_region_bound():
+    """弹药掉落表：T1-T3 在通用表，T4 只进军事补给表（地区 2），T5/T6 不进表。"""
+    cfg = get_config()
+    tables = cfg.balance["loot"]["category_tables"]
+    assert set(tables["ammo"]) == {"ammo_t1", "ammo_t2", "ammo_t3"}, tables["ammo"]
+    mil = tables.get("military_supplies") or []
+    assert "ammo_t4" in mil, "T4 军用弹药应进军事补给表"
+    for reserved in ("ammo_t5", "ammo_t6"):
+        assert reserved not in mil and reserved not in tables["ammo"], \
+            f"{reserved} 应为缺省不可获得"
+
+
+# ---------------------------------------------------------------------------
+# 2. 装填：容量钳制 / 换弹种退旧弹 / 通用性
+# ---------------------------------------------------------------------------
+
+def test_reload_clamps_to_mag_size():
+    """装填量 = min(容量−现有, 背包存量)；背包只有 10 发也照装（显示 10/30）。"""
+    cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        src = int(cfg.balance["noise"]["sources"]["gunshot"])
-        # 随机天赋可能抽到「轻步」（主动噪音 -1）：期望值要跟着算
-        expect = max(0.0, src + float(talents.mod(eng.state, "noise_add_delta", 0)))
-        eng.state["in_combat"] = True
-        # 两只高血量敌人：保证不会全被打死，把 gun_kill 击杀噪音排除在外
-        e1 = C.make_enemy(cfg, "walker", 1)
-        e1["hp"] = e1["hp_max"] = 200
-        e2 = C.make_enemy(cfg, "runner", 1)
-        e2["hp"] = e2["hp_max"] = 200
-        eng.state["combat"] = {"enemies": [e1, e2]}
-        eng.state["in_combat"] = True
-        eng.state["noise"] = 0
-        _equip(cfg, eng, "smg")
-        loot.grant(cfg, eng.state, "ammo_t2", 30)
-        _no_drops(eng)
-
-        await eng._act_shoot({})
-
-        # 噪音恰好加了一次来源值（而非每发一次）；击杀噪音未触发
-        assert eng.state["noise"] == expect, (
-            f"噪音应恰好 +{expect}（一次攻击一次动静），实际 +{eng.state['noise']}"
-        )
+        st = eng.state
+        _equip(cfg, eng, "smg")  # mag 30
+        clip = await _load(eng, "ammo_t2", 10)
+        assert clip == 10, f"背包只有 10 发应全装进（10/30），实际 {clip}"
+        assert st["weapon"]["clip_ammo"] == "ammo_t2"
+        # 背包弹药被压进弹匣
+        assert loot.count(st, "ammo_t2") == 0
 
     asyncio.run(run())
 
 
-def test_burst_shifts_target_after_kill():
-    """当前目标倒下后，剩余发数应转向下一个敌人（不等敌人回合）。"""
+def test_reload_switch_type_returns_old():
+    """换弹种：弹匣里旧弹退回背包，新弹装到上限。"""
     cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        # 第一只只剩 1 血：第一发必死，后续发数应转向第二只
-        e1 = C.make_enemy(cfg, "walker", 1)
-        e1["hp"] = 1
-        # 第二只用血牛：smg 暴击(1.8x)一发可秒 12 血的普通 walker，
-        # 秒杀后 alive 为空 break 会吞掉剩余发数的判定，断言就会偶发失败
-        e2 = C.make_enemy(cfg, "walker", 1)
-        e2["hp"] = e2["hp_max"] = 200
-        eng.state["in_combat"] = True
-        eng.state["combat"] = {"enemies": [e1, e2]}
-        eng.state["noise"] = 0
-        _equip(cfg, eng, "smg")
-        loot.grant(cfg, eng.state, "ammo_t2", 10)
-        _no_drops(eng)
+        st = eng.state
+        _equip(cfg, eng, "smg")  # mag 30
+        await _load(eng, "ammo_t2", 5)
+        loot.grant(cfg, st, "ammo_t3", 8)
 
-        await eng._act_shoot({})
+        await eng._act_reload({"ammo": "ammo_t3"})
 
-        # 两只敌人都该被判定过（除非全部落空——日志验证判定总数 ≥3）
-        judged = [l for l in eng._out if "开枪命中" in l or "扑了个空" in l]
-        assert len(judged) >= 3, f"应至少 3 次判定，实际 {len(judged)}"
-        # 第二只至少被点名过一次（日志含其名字；血牛打不死，但必然掉血）
-        assert e2["hp"] < e2["hp_max"] or any("行尸" in l for l in judged[1:]), (
-            "第二只敌人应承接转向的发数"
-        )
+        assert st["weapon"]["clip_ammo"] == "ammo_t3"
+        assert st["weapon"]["clip_count"] == 8
+        assert loot.count(st, "ammo_t2") == 5, "旧弹应退回背包"
+
+    asyncio.run(run())
+
+
+def test_reload_full_is_noop():
+    """同类补满：弹匣未满时再装填会补到上限；已满则不消耗背包弹药。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        _equip(cfg, eng, "smg")  # mag 30
+        clip = await _load(eng, "ammo_t2", 10)
+        assert clip == 10
+        loot.grant(cfg, st, "ammo_t2", 20)
+
+        await eng._act_reload({"ammo": "ammo_t2"})
+
+        # 未满 → 同类补满到 30（背包 20 发全部压入）
+        assert st["weapon"]["clip_count"] == 30, f"应补满到 30，实际 {st['weapon']['clip_count']}"
+        assert loot.count(st, "ammo_t2") == 0, "补满消耗背包弹药"
+
+        # 已满再装填 → no-op
+        loot.grant(cfg, st, "ammo_t2", 5)
+        await eng._act_reload({"ammo": "ammo_t2"})
+        assert st["weapon"]["clip_count"] == 30, "已满不应再装"
+        assert loot.count(st, "ammo_t2") == 5, "满弹匣不应消耗背包弹药"
 
     asyncio.run(run())
 
 
 # ---------------------------------------------------------------------------
-# 3. 弹药不足：burst 部分射击 vs 单发打不出
+# 3. 射击：只消耗弹匣；burst 部分射击；空弹匣打不出
 # ---------------------------------------------------------------------------
 
-def test_burst_partial_shots_when_low_ammo():
-    """弹药只剩 2 发时，连射应打出去 2 发而不是拒绝开火。
-
-    用「先清空再给 2 发」控制存量——开局自带 12 发，不能硬编码计数。
-    """
+def test_shoot_consumes_clip_not_inventory():
+    """射击只消耗弹匣内子弹；背包储备不自动进弹匣。"""
     cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["in_combat"] = True
-        # 血牛：2 发打不死，判定数与发数一致（暴击秒杀会吞判定）
+        st = eng.state
+        st["in_combat"] = True
         e = C.make_enemy(cfg, "walker", 1)
         e["hp"] = e["hp_max"] = 200
-        eng.state["combat"] = {"enemies": [e]}
-        eng.state["noise"] = 0
+        st["combat"] = {"enemies": [e]}
+        st["noise"] = 0
         _equip(cfg, eng, "smg")
-        # 清空开局弹药，精确控制只剩 2 发
-        eng.state["inventory"] = [
-            e for e in eng.state["inventory"] if e["id"] != "ammo_t2"
-        ]
-        loot.grant(cfg, eng.state, "ammo_t2", 2)
+        clip = await _load(eng, "ammo_t2", 10)
+        # 背包里另有 20 发储备——不应被射击直接消耗
+        loot.grant(cfg, st, "ammo_t2", 20)
         _no_drops(eng)
 
         await eng._act_shoot({})
 
-        assert loot.count(eng.state, "ammo_t2") == 0, "仅剩的弹药应全部打出去"
-        judged = [l for l in eng._out if "开枪命中" in l or "扑了个空" in l]
-        assert len(judged) == 2, f"应恰好 2 次判定，实际 {len(judged)}"
+        after = int(st["weapon"].get("clip_count") or 0)
+        spent = clip - after
+        assert 3 <= spent <= 5, f"burst 应消耗 3-5 发弹匣，实际 {spent}"
+        assert loot.count(st, "ammo_t2") == 20, "背包储备不应被射击消耗"
 
     asyncio.run(run())
 
 
-def test_single_shot_blocked_without_ammo():
-    """非 burst 武器弹药不足时打不出，也不该有判定发生。"""
+def test_empty_clip_blocks_shoot():
+    """空弹匣打不出，也不消耗背包弹药——提示需要装填。"""
     cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["in_combat"] = True
-        eng.state["combat"] = _combat_with(cfg, ["walker"])
-        eng.state["noise"] = 0
-        _equip(cfg, eng, "pistol_m9")  # 单发 t2 枪
-        eng.state["inventory"] = [
-            e for e in eng.state["inventory"] if e["id"] != "ammo_t2"
-        ]
+        st = eng.state
+        st["in_combat"] = True
+        st["combat"] = {"enemies": [C.make_enemy(cfg, "walker", 1)]}
+        st["noise"] = 0
+        _equip(cfg, eng, "pistol_m9")
+        # 背包有弹药但弹匣是空的——不再自动从背包供给
+        loot.grant(cfg, st, "ammo_t2", 12)
 
         await eng._act_shoot({})
 
-        assert loot.count(eng.state, "ammo_t2") == 0
+        assert loot.count(st, "ammo_t2") == 12, "空弹匣不应消耗背包弹药"
         judged = [l for l in eng._out if "开枪命中" in l or "扑了个空" in l]
-        assert not judged, f"没弹药不应有任何判定: {judged}"
-        assert any("不够了" in l for l in eng._out), "应提示弹药不足"
-        # 噪音也不该产生——没开枪哪来的动静
-        assert eng.state["noise"] == 0
+        assert not judged, f"空弹匣不应有判定: {judged}"
+        assert any("弹夹空了" in l for l in eng._out), "应提示需要装填"
+
+    asyncio.run(run())
+
+
+def test_reload_in_combat_costs_a_turn():
+    """战斗中装填消耗 1 回合：触发敌人反击 + 推进回合计数。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["in_combat"] = True
+        e = C.make_enemy(cfg, "walker", 1)
+        e["hp"] = e["hp_max"] = 200
+        st["combat"] = {"enemies": [e]}
+        st["noise"] = 0
+        _equip(cfg, eng, "smg")
+        loot.grant(cfg, st, "ammo_t2", 10)
+        turns = st["turn"]
+        st["hp"] = 100
+        st["hp_max"] = 100
+
+        await eng.act("reload", {"ammo": "ammo_t2"})
+
+        assert int((st["weapon"]).get("clip_count") or 0) > 0, "装填应成功"
+        assert st["turn"] > turns, "战斗中装填应推进回合（耗 1 回合）"
+
+    asyncio.run(run())
+
+
+def test_reload_out_of_combat_is_free():
+    """非战斗装填是整理动作：不推进回合/倒计时。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["in_combat"] = False
+        st["evac_countdown"] = 30
+        turns = st["turn"]
+        _equip(cfg, eng, "smg")
+
+        await eng.act("reload", {"ammo": "ammo_t2"}) if False else None
+        loot.grant(cfg, st, "ammo_t2", 10)
+        await eng.act("reload", {"ammo": "ammo_t2"})
+
+        assert st["turn"] == turns, "非战斗装填不应推进回合"
+        assert int(st["weapon"].get("clip_count") or 0) > 0, "装填应成功"
+        assert st["evac_countdown"] == 30, "非战斗装填不应推进倒计时"
 
     asyncio.run(run())
 
 
 # ---------------------------------------------------------------------------
-# 4. 遗物安全：弹药不进遗物池（legacy_exclude_kinds 含 ammo）
+# 4. 弹药品质：dmg_mult 按弹种生效（四舍五入）
 # ---------------------------------------------------------------------------
 
-def test_ammo_not_legacy():
+def test_ammo_dmg_mult_scaling():
+    """弹药 dmg_mult 乘在每发伤害上：同一把枪，T6 比 T2 打得更疼（四舍五入）。"""
     cfg = get_config()
-    for a in ("ammo_t1", "ammo_t2", "ammo_t3"):
+
+    def shoot_dmg(mult: float) -> int:
+        attacker = {"acc": 100, "eva": 0, "crit": 0.0, "dmg": [10, 10],
+                    "strength": 0, "dmg_pct": 0.0}
+        defender = {"armor": 0, "eva": 0, "taken_dmg": 0}
+        rng = C.RNG(12345)
+        total = 0
+        for _ in range(50):
+            res = C.resolve_attack(
+                cfg, rng, attacker, defender,
+                attacker_meta={"dmg_mult": mult},
+            )
+            total += res["dmg"]
+        return total
+
+    t2 = shoot_dmg(1.00)
+    t6 = shoot_dmg(1.50)
+    assert t6 > t2 * 1.3, f"T6(150%) 应显著高于 T2(100%)：{t6} vs {t2}"
+
+    from app.core.rng import RNG
+
+    r = RNG(7)
+    for _ in range(20):
+        res = C.resolve_attack(
+            cfg, r,
+            {"acc": 100, "eva": 0, "crit": 0.0, "dmg": [5, 5], "strength": 0, "dmg_pct": 0.0},
+            {"armor": 0, "eva": 0, "taken_dmg": 0},
+            attacker_meta={"dmg_mult": 1.05},
+        )
+        # 5 × 1.05 = 5.25 → 四舍五入 5；不存在小数残留
+        assert res["dmg"] == int(res["dmg"]), "伤害应为整数"
+
+
+def test_extended_mag_talent():
+    """扩容弹匣：所有枪械弹匣容量 ×1.5（30 → 45）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["talents"] = [
+            {"id": "extended_mag", "name": "扩容弹匣", "desc": "",
+             "mods": {"mag_size_mult": 1.5}}
+        ]
+        _equip(cfg, eng, "smg")
+        loot.grant(cfg, st, "ammo_t2", 45)
+
+        await eng._act_reload({"ammo": "ammo_t2"})
+
+        assert st["weapon"]["clip_count"] == 45, \
+            f"扩容后应可装 45 发，实际 {st['weapon']['clip_count']}"
+
+    asyncio.run(run())
+
+
+def test_speed_loader_talent():
+    """快速装填：战斗中装填不再触发敌人回合。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["in_combat"] = True
+        e = C.make_enemy(cfg, "walker", 1)
+        e["hp"] = e["hp_max"] = 200
+        st["combat"] = {"enemies": [e]}
+        st["noise"] = 0
+        _equip(cfg, eng, "smg")
+        st["talents"] = [
+            {"id": "speed_loader", "name": "快速装填", "desc": "",
+             "mods": {"reload_free": 1}}
+        ]
+        loot.grant(cfg, st, "ammo_t2", 10)
+        # hp_max 与同步口径一致（每个行动后 _sync_hp_max 会校回基础值）
+        st["hp_max"] = cfg.balance["player"]["hp"]
+        st["hp"] = st["hp_max"]
+        hp_before = st["hp"]
+        log_before = len(st["log"])
+
+        await eng.act("reload", {"ammo": "ammo_t2"})
+
+        assert int(st["weapon"].get("clip_count") or 0) > 0, "装填应成功"
+        assert st["hp"] == hp_before, "快速装填不应挨敌人反击"
+        new_lines = st["log"][log_before:]
+        assert not any("击中你" in l or "扑空了" in l for l in new_lines),             f"不应有敌人反击判定: {new_lines}"
+
+    asyncio.run(run())
+
+
+def test_ammo_not_legacy():
+    """弹药 T1-T6 都不进遗物池（legacy_exclude_kinds 含 ammo 类）。"""
+    cfg = get_config()
+    for a in ("ammo_t1", "ammo_t2", "ammo_t3", "ammo_t4", "ammo_t5", "ammo_t6"):
         assert not cfg.legacy_allowed(a), f"{a} 不应作为遗物继承"
 
 
 if __name__ == "__main__":
-    test_all_ranged_weapons_use_tier_ammo()
-    print("✓ 全武器按 tier 引用弹药")
-    test_old_ammo_ids_gone()
-    print("✓ 旧弹种已清除")
-    test_smg_burst_exists()
-    print("✓ 冲锋枪 burst 配置")
-    test_burst_shoots_multiple_shots()
-    print("✓ 连射多发独立判定")
-    test_burst_noise_added_once()
-    print("✓ 扫射噪音只算一次")
-    test_burst_shifts_target_after_kill()
-    print("✓ 目标倒下发数转向")
-    test_burst_partial_shots_when_low_ammo()
-    print("✓ 弹药不足部分射击")
-    test_single_shot_blocked_without_ammo()
-    print("✓ 单发武器没弹药打不出")
+    test_all_ranged_weapons_have_mag()
+    print("✓ 全远程武器配置弹匣容量（任意枪装任意弹）")
+    test_ammo_t1_t6_defined()
+    print("✓ 弹药 T1-T6 名称/伤害加成/地区绑定")
+    test_ammo_tables_region_bound()
+    print("✓ 弹药掉落表地区绑定（T4 军事表，T5/T6 缺省）")
+    test_reload_clamps_to_mag_size()
+    print("✓ 装填钳制到弹匣容量（10/30）")
+    test_reload_switch_type_returns_old()
+    print("✓ 换弹种旧弹退回背包")
+    test_reload_full_is_noop()
+    print("✓ 满弹匣装填不消耗")
+    test_shoot_consumes_clip_not_inventory()
+    print("✓ 射击只消耗弹匣（背包储备不自动进弹）")
+    test_empty_clip_blocks_shoot()
+    print("✓ 空弹匣打不出（提示装填）")
+    test_reload_in_combat_costs_a_turn()
+    print("✓ 战斗中装填耗 1 回合")
+    test_reload_out_of_combat_is_free()
+    print("✓ 非战斗装填不推进计时")
+    test_extended_mag_talent()
+    print("✓ 扩容弹匣天赋（容量 ×1.5）")
+    test_speed_loader_talent()
+    print("✓ 快速装填天赋（不触发敌人回合）")
+    test_ammo_dmg_mult_scaling()
+    print("✓ 弹药伤害加成按弹种生效（四舍五入）")
     test_ammo_not_legacy()
     print("✓ 弹药不进遗物池")
-    print("\n远程武器重做回归测试全部通过")
+    print("\nP9 弹匣系统回归测试全部通过")

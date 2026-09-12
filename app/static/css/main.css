@@ -251,30 +251,33 @@ body::after {
   white-space: nowrap;
   padding-top: .1rem;
 }
+/* P9 九宫格：3 列物品卡网格（用户拍板）——每格一件物品的紧凑卡片 */
 .pack-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .3rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .35rem;
   min-width: 0;
 }
 
-/* 可交互的（消耗品 / 可换装备） */
+/* 物品卡：图标+名+耐久/弹匣+行内 chips（desc 收进悬停 title） */
 .pack-item {
   font-family: var(--mono);
-  font-size: .74rem;
-  display: inline-flex;
-  align-items: center;
+  font-size: .72rem;
+  display: flex;
   flex-wrap: wrap;
-  gap: .22rem .35rem;
-  padding: .1rem .42rem;
+  align-items: center;
+  gap: .18rem .3rem;
+  padding: .28rem .35rem;
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: 3px;
   background: var(--panel-2);
   color: var(--text-dim);
-  white-space: nowrap;
+  min-height: 52px;
+  align-content: center;
   touch-action: manipulation;
   -webkit-user-select: none; user-select: none;
 }
+.pack-item .icon { font-size: .95rem; }
 .pack-item.act { cursor: pointer; color: var(--text); }
 .pack-item.act:hover { border-color: var(--text-faint); color: var(--phosphor); background: #1a2422; }
 
@@ -285,16 +288,8 @@ body::after {
 .pack-item.trinket { color: var(--amber); opacity: .82; border-color: rgba(201,162,39,.28); }
 .pack-item.weapon-held { border-color: rgba(127,224,138,.3); color: var(--phosphor); }
 .pack-item .qty { color: var(--text-faint); }
-.pack-item .wear { color: #a06a55; font-size: .68rem; }
-/* 数值摘要：单独占一行，让玩家不用真的用一次就知道道具干什么 */
-.pack-item .desc {
-  flex-basis: 100%;
-  white-space: normal;
-  font-size: .66rem;
-  line-height: 1.25;
-  color: var(--text-faint);
-}
-.pack-item.act .desc, .pack-item.weapon-held .desc { color: var(--text-dim); }
+.pack-item .wear { color: #a06a55; font-size: .64rem; }
+.pack-item .desc { display: none; }  /* 九宫格里描述收进悬停 title */
 
 .pack-empty { color: var(--text-faint); font-size: .74rem; }
 
@@ -798,13 +793,15 @@ kbd.hot { margin-left: .35rem; }
   .pack { padding: .35rem .7rem; }
   .pack-items { gap: .35rem; }
   /* 随身物品整块更易点：放大并撑满高度 */
+  .pack-items { gap: .3rem; }
   .pack-item {
-    font-size: .82rem;
-    padding: .28rem .5rem;
-    min-height: 38px;
-    align-items: center;
+    font-size: .72rem;
+    padding: .22rem .3rem;
+    min-height: 46px;
+    align-content: center;
   }
-  .pack-item .desc { font-size: .68rem; }
+  .pack-item .icon { font-size: .88rem; }
+  .pack-item .wear { font-size: .6rem; }
 
   .cmd { padding: .5rem .7rem calc(.85rem + env(safe-area-inset-bottom)); }
   .cmd-buttons { gap: .4rem; margin-bottom: .4rem; }

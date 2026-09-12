@@ -50,6 +50,9 @@ def _item_desc(item: dict, kind: str, absorb_pct: float | None = None) -> str:
                 p.append(f"连射 {item['burst'][0]}–{item['burst'][1]} 发")
             else:
                 p.append(f"每发 {item.get('ammo_per_shot', 1)} 弹")
+            # P9 弹匣：容量可配（mag_size），任意弹种可装填（伤害按弹种 dmg_mult）
+            if item.get("mag_size"):
+                p.append(f"弹匣 {item['mag_size']} 发")
         else:
             p.append("静音")
         if item.get("durability"):
@@ -1201,6 +1204,14 @@ class RunEngine:
         if st.get("pending_decision"):
             return await self._handle_pending(action, payload)
 
+        # P9 弹匣装填：非战斗装填是「整理动作」——不推进回合/倒计时/感染 tick。
+        # 战斗中装填走正常行动流（耗费 1 回合，装完挨一轮打）。
+        if action == "reload" and not st.get("in_combat"):
+            self._out = []
+            await self._act_reload(payload)
+            self.persist_rng()
+            return self._response()
+
         try:
             handler = getattr(self, f"_act_{action}", None)
             if handler is None:
@@ -1210,7 +1221,7 @@ class RunEngine:
                 if st["status"] == "active":
                     # 灾害倒计时：每个行动都推进（搜刮/移动/攻击…）。
                     # 归零 → 恶化。注意 _act_hazard 自己解决灾害后 hazard 已弹掉，不会重复结算。
-                    if st["room"].get("hazard"):
+                    if (st.get("room") or {}).get("hazard"):
                         await self._tick_hazard()
                     for line in level_rules.tick_turn(self.cfg, st):
                         self._log(line)
@@ -1565,6 +1576,7 @@ class RunEngine:
             return
 
         wcfg = combat.equipped_weapon(self.cfg, st)
+        shot_meta = None
         shots = 1
         if ranged:
             if not wcfg:
@@ -1573,24 +1585,30 @@ class RunEngine:
             if wcfg.get("kind") != "ranged":
                 self._log("这不是枪。")
                 return
-            atype = wcfg["ammo_type"]
+            # P9 弹夹系统：弹药从武器弹匣供给（装填时从背包压入），不再直读背包
+            clip_ammo = (st.get("weapon") or {}).get("clip_ammo")
+            clip_count = int((st.get("weapon") or {}).get("clip_count") or 0)
+            if not clip_ammo or clip_count <= 0:
+                self._log("弹夹空了——需要装填弹药。（随身面板点武器的「装填」）")
+                return
+            atype = clip_ammo
             need = int(wcfg.get("ammo_per_shot", 1))
-            # 连射武器（burst）：一次攻击随机射出 N 发，弹药不足时有多少打多少。
-            # 单发武器弹药不足则打不出。
+            # 连射武器（burst）：一次攻击随机射出 N 发，弹匣不足时有多少打多少。
+            # 单发/齐射武器（ammo_per_shot ≥ 2）弹匣不足则打不出。
             if wcfg.get("burst"):
                 lo, hi = wcfg["burst"]
                 shots = self.rng.randint(int(lo), int(hi))
-                have = loot.count(st, atype)
-                if have < 1:
-                    self._log(f"{self.cfg.item(atype)['name']}不够了。")
-                    return
-                shots = min(shots, have)
+                shots = min(shots, clip_count)
             else:
                 shots = need
-                if loot.count(st, atype) < need:
-                    self._log(f"{self.cfg.item(atype)['name']}不够了。")
+                if clip_count < need:
+                    self._log(f"弹夹弹药不足（{clip_count}/{need}）——需要装填。")
                     return
-            loot.remove(st, atype, shots)
+            st["weapon"]["clip_count"] = clip_count - shots
+            # 弹药品质：已装填弹种的伤害百分比（resolve_attack 内乘算）
+            shot_meta = {"dmg_mult": float(
+                self.cfg.item(atype).get("dmg_mult", 1.0) or 1.0
+            )}
             # 噪音按一次攻击算一次——扫射再密，动静也只是一轮枪声
             noise.add(self.cfg, st, wcfg.get("noise_key", "gunshot"))
         else:
@@ -1618,7 +1636,7 @@ class RunEngine:
                 return
             self._log("你扣下扳机，霰弹横扫向所有敌人！")
             for enemy in alive:
-                await self._player_hit_one(enemy, pp, ranged)
+                await self._player_hit_one(enemy, pp, ranged, shot_meta)
         elif shots > 1:
             # 连射：每发独立 roll 命中与伤害（复用单敌结算）。当前目标倒下后
             # 剩余发数自动转向下一个敌人——扫射不看弹匣里的仇恨。
@@ -1627,22 +1645,29 @@ class RunEngine:
                 alive = [e for e in st["combat"]["enemies"] if e["hp"] > 0]
                 if not alive:
                     break
-                await self._player_hit_one(alive[0], pp, ranged)
+                await self._player_hit_one(alive[0], pp, ranged, shot_meta)
         else:
             target = payload.get("target")
             enemy = enemies[0]
             if isinstance(target, int) and 0 <= target < len(st["combat"]["enemies"]):
                 cand = st["combat"]["enemies"][target]
                 enemy = cand if cand["hp"] > 0 else enemy
-            await self._player_hit_one(enemy, pp, ranged)
+            await self._player_hit_one(enemy, pp, ranged, shot_meta)
 
         await self._enemy_round()
 
-    async def _player_hit_one(self, enemy: dict, pp: dict, ranged: bool) -> None:
-        """对单个敌人结算一次玩家攻击（命中/闪避/暴击各自独立）。"""
+    async def _player_hit_one(
+        self, enemy: dict, pp: dict, ranged: bool, meta: dict | None = None
+    ) -> None:
+        """对单个敌人结算一次玩家攻击（命中/闪避/暴击各自独立）。
+
+        meta：attacker_meta 直透 resolve_attack（P9 弹药 dmg_mult 走这里）。
+        """
         st = self.state
         ep = combat.enemy_profile(self.cfg, enemy)
-        res = combat.resolve_attack(self.cfg, self.rng, pp, ep)
+        res = combat.resolve_attack(
+            self.cfg, self.rng, pp, ep, attacker_meta=meta
+        )
         if not res["hit"]:
             self._log(f"你扑了个空。{enemy['name']}擦着你的手滑了过去。")
             return
@@ -2131,6 +2156,71 @@ class RunEngine:
         ok, msg = self._do_repair(iid, pay)
         self._log(msg)
 
+    def _mag_size(self, wcfg: dict) -> int:
+        """武器弹匣容量（配置 mag_size × 扩容弹匣天赋 mag_size_mult）。"""
+        base = int(wcfg.get("mag_size", 0) or 0)
+        if not base:
+            return 0
+        mult = float(talents.mod(self.state, "mag_size_mult", 1.0) or 1.0)
+        return max(1, int(math.floor(base * mult + 0.5)))
+
+    def _clip_state(self) -> tuple[dict | None, dict | None, int, str | None, int]:
+        """当前武器与弹匣状态：(武器实例, 武器配置, 弹匣现有数, 弹种 id, 弹匣容量)。"""
+        st = self.state
+        w = st.get("weapon") or {}
+        wcfg = combat.equipped_weapon(self.cfg, st) or {}
+        size = self._mag_size(wcfg)
+        count = int(w.get("clip_count") or 0)
+        return (w if w else None), wcfg, count, w.get("clip_ammo"), size
+
+    async def _act_reload(self, payload: dict) -> None:
+        """P9 弹匣装填：从背包把子弹压进当前武器弹匣。
+
+        - 装填量 = min(容量 − 现有, 背包存量)；弹匣只装同一种子弹
+        - 换弹种时旧弹退回背包（用户拍板），再装新弹到上限
+        - 战斗中调用（正常行动流）会推进回合并触发敌人回合——装填要时间；
+          非战斗由 act() 的 reload 分支直接进来，不推进任何计时
+        """
+        st = self.state
+        w, wcfg, cur, cur_ammo, size = self._clip_state()
+        if not w or not wcfg or wcfg.get("kind") != "ranged":
+            self._log("手上没有需要装填的枪。")
+            return
+        if not size:
+            self._log("这把枪没有弹匣结构。")
+            return
+        ammo_id = payload.get("ammo")
+        if not ammo_id:
+            self._log("没有选择要装填的弹药。")
+            return
+        if self.cfg.item_kind(ammo_id) != "ammo":
+            self._log("那不是能装进弹夹的东西。")
+            return
+        if cur > 0 and cur_ammo and cur_ammo != ammo_id:
+            # 异类换弹：弹匣里旧弹退回背包（用户拍板），再装新弹
+            loot.grant(self.cfg, st, cur_ammo, cur)
+            self._log(f"弹匣里剩下的{self.cfg.item(cur_ammo)['name']}退回了背包。")
+            cur = 0
+        owned = loot.count(st, ammo_id)
+        if owned <= 0:
+            self._log(f"你没有{self.cfg.item(ammo_id)['name']}。")
+            return
+        load = min(size - cur, owned)
+        if load <= 0:
+            self._log("弹夹已经满了。")
+            return
+        loot.remove(st, ammo_id, load)
+        w["clip_ammo"] = ammo_id
+        w["clip_count"] = cur + load
+        self._log(
+            f"你把 {load} 发{self.cfg.item(ammo_id)['name']}压进弹匣。"
+            f"（弹匣 {w['clip_count']}/{size}）"
+        )
+        if st.get("in_combat"):
+            # 快速装填天赋：装填不触发敌人回合（不耗费这 1 回合的反击）
+            if not int(talents.mod(st, "reload_free", 0)):
+                await self._enemy_round()
+
     async def _act_use(self, payload: dict) -> None:
         st = self.state
         cfg = self.cfg
@@ -2246,10 +2336,21 @@ class RunEngine:
         kind = self.cfg.item_kind(iid)
         if kind == "weapon":
             old = st["weapon"]
-            st["weapon"] = {"id": iid, "durability": entry.get("durability")}
+            st["weapon"] = {
+                "id": iid,
+                "durability": entry.get("durability"),
+                # P9 弹匣状态随武器实例往返（背包里的枪带着已装填的弹匣）
+                "clip_ammo": entry.get("clip_ammo"),
+                "clip_count": int(entry.get("clip_count") or 0),
+            }
             loot.remove(st, iid, 1)
             if old:
-                loot.grant(self.cfg, st, old["id"], 1, old.get("durability"))
+                clip = (
+                    (old.get("clip_ammo"), int(old.get("clip_count") or 0))
+                    if old.get("clip_ammo")
+                    else None
+                )
+                loot.grant(self.cfg, st, old["id"], 1, old.get("durability"), clip)
             self._log(f"你换上了{self.cfg.item(iid)['name']}。")
         elif kind == "armor":
             old = st["armor"]
@@ -2285,7 +2386,12 @@ class RunEngine:
             if not w or not w.get("id"):
                 self._log("你手上本来就空着。")
                 return
-            loot.grant(self.cfg, st, w["id"], 1, w.get("durability"))
+            clip = (
+                (w.get("clip_ammo"), int(w.get("clip_count") or 0))
+                if w.get("clip_ammo")
+                else None
+            )
+            loot.grant(self.cfg, st, w["id"], 1, w.get("durability"), clip)
             st["weapon"] = None
             self._log(f"你收起了{self.cfg.item(w['id'])['name']}。")
         elif slot == "armor":
@@ -3148,6 +3254,10 @@ class RunEngine:
                 "durability": e.get("durability"),
                 # 品级（仅武器/护甲/背包有）：前端画 T1-T6 徽标
                 "tier": item.get("tier"),
+                # P9 弹匣（仅远程武器）：实例弹匣状态随物品往返
+                "mag_size": int(item.get("mag_size", 0) or 0) if kind == "weapon" else 0,
+                "clip_ammo": e.get("clip_ammo") if kind == "weapon" else None,
+                "clip_count": int(e.get("clip_count") or 0) if kind == "weapon" else 0,
                 # 护甲实例上限（修甲磨上限）：前端显示 cur/max
                 "max_durability": e.get("max_durability") if kind == "armor" else None,
                 "desc": _item_desc(item, kind)
@@ -3198,6 +3308,10 @@ class RunEngine:
                     "durability": (st.get("weapon") or {}).get("durability"),
                     "tier": wcfg.get("tier") if wcfg else None,
                     "ranged": bool(wcfg and wcfg.get("kind") == "ranged"),
+                    # P9 弹匣：容量/弹种/现有发数（近战为 0）
+                    "mag_size": self._mag_size(wcfg) if wcfg else 0,
+                    "clip_ammo": (st.get("weapon") or {}).get("clip_ammo"),
+                    "clip_count": int((st.get("weapon") or {}).get("clip_count") or 0),
                     "desc": _item_desc(wcfg, "weapon") if wcfg else None,
                 },
                 # 护甲：名字 + 剩余耐久 + 总耐久。此前只下发名字，玩家看不到
@@ -3230,6 +3344,20 @@ class RunEngine:
                 "bag_cap": self._bag_cap(),
                 "bag_used": len(st["inventory"]),
                 "ammo": ammo,
+                # P9 装填面板数据：弹种清单（高 tier 在前）+ 背包存量
+                "ammo_types": sorted(
+                    (
+                        {
+                            "id": a["id"],
+                            "name": a["name"],
+                            "tier": int((a["id"].removeprefix("ammo_t") or 0) or 0),
+                            "dmg_mult": float(a.get("dmg_mult", 1.0) or 1.0),
+                            "count": ammo.get(a["id"], 0),
+                        }
+                        for a in self.cfg.items_cfg["ammo"]
+                    ),
+                    key=lambda r: -r["tier"],
+                ),
                 # 现金独立计数：不进背包；旧局背包里的现金条目向下兼容并入显示
                 "cash": loot.count(st, "cash"),
                 "scrap": loot.count(st, "scrap"),
@@ -3436,10 +3564,15 @@ class RunEngine:
         # 原战斗中 lure 的例外逻辑一并作废——进 Boss 战后只能硬拼。
 
         if st.get("in_combat"):
-            melee_held = (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "melee"
+            held = combat.equipped_weapon(self.cfg, st) or {}
+            melee_held = held.get("kind") == "melee"
             acts.append({"id": "attack", "label": "攻击" if melee_held else "挥拳", "kind": "danger"})
-            if (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "ranged":
+            if held.get("kind") == "ranged":
                 acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
+                # P9 弹匣未满 → 装填入口（前端弹装填面板，选择弹种后消耗 1 回合）
+                clip_count = int((st.get("weapon") or {}).get("clip_count") or 0)
+                if clip_count < self._mag_size(held):
+                    acts.append({"id": "reload", "label": "装填（耗 1 回合）", "kind": "safe"})
             acts.append({"id": "flee", "label": "逃跑", "kind": "ghost"})
             # 瞄准：消耗体力换临时命中加成。低体力只是用不了，绝不影响基础命中。
             cost = int(self.cfg.balance["combat"].get("brace_stamina_cost", 0))
@@ -3460,10 +3593,14 @@ class RunEngine:
                     acts.append({"id": "evac", "label": "登上直升机", "kind": "primary"})
             elif self._elite_guard_active():
                 # 守门精英还站着：不给下楼按钮，只有打
-                melee_held = (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "melee"
+                held = combat.equipped_weapon(self.cfg, st) or {}
+                melee_held = held.get("kind") == "melee"
                 acts.append({"id": "attack", "label": "攻击" if melee_held else "挥拳", "kind": "danger"})
-                if (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "ranged":
+                if held.get("kind") == "ranged":
                     acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
+                    clip_count = int((st.get("weapon") or {}).get("clip_count") or 0)
+                    if clip_count < self._mag_size(held):
+                        acts.append({"id": "reload", "label": "装填（耗 1 回合）", "kind": "safe"})
             else:
                 acts.append({"id": "descend", "label": "下一层", "kind": "primary"})
 

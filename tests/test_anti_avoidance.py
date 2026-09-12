@@ -308,14 +308,15 @@ def test_region2_noise_cap_30():
 
     asyncio.run(run())
 
-    # 触发线缩放：地区 2 = 8×3 = 24；地区 1 的防线在 add 封顶（上限 10）
-    st2 = {"depth": 6, "noise": 24.0, "horde": False}
-    assert noise.check_horde(cfg, st2) is True, "地区 2 触发线应缩放为 24"
+    # 触发线缩放：地区 2 = threshold(9)×3 = 27；地区 1 的防线在 add 封顶（上限 10）
+    thr = float(cfg.balance["noise"]["horde"]["threshold"]) * 3.0
+    st2 = {"depth": 6, "noise": thr, "horde": False}
+    assert noise.check_horde(cfg, st2) is True, "地区 2 触发线应缩放为 27"
     assert st2["horde"] is True
-    st3 = {"depth": 6, "noise": 23.9, "horde": False}
+    st3 = {"depth": 6, "noise": thr - 0.1, "horde": False}
     assert noise.check_horde(cfg, st3) is False, "地区 2 触发线下不应触发"
-    st4 = {"depth": 1, "noise": 9.0, "horde": False}
-    assert noise.check_horde(cfg, st4) is True, "地区 1 触发线仍是 8"
+    st4 = {"depth": 1, "noise": float(cfg.balance["noise"]["horde"]["threshold"]), "horde": False}
+    assert noise.check_horde(cfg, st4) is True, "地区 1 触发线仍是 9"
 
     # 上限/缩放查询
     assert noise.noise_max(cfg, 6) == 30.0

@@ -84,9 +84,9 @@ def check_horde(cfg: GameConfig, state: dict) -> bool:
             state["horde"] = False
         return False
     threshold = (
-        float(ncfg["threshold"]) * scale
+        float(ncfg["threshold"])
         + float(talents.mod(state, "horde_threshold_delta", 0))
-    )
+    ) * scale
     if v >= threshold:
         state["horde"] = True
         return True

@@ -79,6 +79,24 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
         )
         return "carry", {"weapon": weapon, "gear": gear, "other": other}
 
+    # P9 弹匣：非战斗免费补满（装填不推进回合）；战斗中弹匣空且有弹则装填
+    w_inst = st.get("weapon") or {}
+    w_id = w_inst.get("id")
+    if w_id and engine.cfg.item_kind(w_id) == "ranged":
+        wcfg = engine.cfg.item(w_id)
+        size = int(wcfg.get("mag_size", 0) or 0)
+        cur = int(w_inst.get("clip_count") or 0)
+        best_id, best_n = None, 0
+        for e in st.get("inventory") or []:
+            if engine.cfg.item_kind(e["id"]) == "ammo" and int(e.get("qty", 0) or 0) > best_n:
+                best_id, best_n = e["id"], int(e["qty"])
+        if size and best_n > 0 and cur < size:
+            if not st.get("in_combat"):
+                return "reload", {"ammo": best_id}
+            need = int(wcfg.get("ammo_per_shot", 1)) if not wcfg.get("burst") else 1
+            if cur < need:
+                return "reload", {"ammo": best_id}
+
     if st.get("pending_decision") == "bag_overflow":
         # 背包超载（先拿后丢 / 换装缩水）：丢到装得下为止（必然有可丢项，否则不会溢出）
         inv = st.get("inventory") or []
@@ -157,11 +175,13 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
         for a in acts:
             if a["id"] == "shoot":
                 w = engine.cfg.item(st["weapon"]["id"])
-                # burst 武器弹药不足时可部分射击（至少 1 发），单发必须够 ammo_per_shot
+                # P9 弹匣：射击消耗弹匣内子弹（装填策略在上面已处理）
+                have = int((st.get("weapon") or {}).get("clip_count") or 0)
+                # burst 武器弹匣不足时可部分射击（至少 1 发），单发必须够 ammo_per_shot
                 if w.get("burst"):
-                    if loot.count(st, w["ammo_type"]) >= 1:
+                    if have >= 1:
                         return "shoot", {}
-                elif loot.count(st, w["ammo_type"]) >= w.get("ammo_per_shot", 1):
+                elif have >= w.get("ammo_per_shot", 1):
                     return "shoot", {}
         return "attack", {}
 

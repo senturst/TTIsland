@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from ..data.loader import GameConfig
@@ -195,7 +196,13 @@ def resolve_attack(
     # 减伤类 buff
     raw -= float(defender.get("taken_dmg", 0))
 
-    dmg = max(1, int(round(raw)))
+    # 弹药品质（P9 弹匣系统）：每发子弹伤害百分比（attacker_meta.dmg_mult）
+    mult = float(meta.get("dmg_mult", 1.0) or 1.0)
+    if mult != 1.0:
+        raw *= mult
+
+    # 四舍五入（用户拍板）：不用 banker's round，0.5 恒进位
+    dmg = max(1, int(math.floor(raw + 0.5)))
 
     infection = 0
     effects: list[str] = []

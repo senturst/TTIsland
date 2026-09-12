@@ -384,6 +384,8 @@ class GameConfig:
             "acc", "eva", "armor", "crit", "agility",
             "melee_dmg_pct", "ranged_dmg_pct", "low_hp_dmg_pct", "low_hp_threshold",
             "execute_dmg_pct", "brace_acc_bonus_add",
+            # P9 弹匣系统（run_service：装填/弹匣容量）
+            "mag_size_mult", "reload_free",
             # 资源与背包（run_service / _bag_cap）
             "hp_max", "stamina_max", "bag_slots", "kill_heal",
             "descend_heal_add", "flashlight_bonus",

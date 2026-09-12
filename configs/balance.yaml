@@ -51,7 +51,7 @@ combat:
   # 逃跑失败时敌人免费打一次的概率
   flee_fail_punish_chance: 0.75
   # 逃跑=冲刺，无论成败都扣体力（测试以本键为准，不再有"引擎已移除"的说法）。
-  flee_stamina_cost: 5
+  flee_stamina_cost: 2
   # 敌人越多越难脱身：每只**额外**敌人（超出 1 只的部分）−2% 逃跑率，被 flee_clamp 钳制。
   flee_per_enemy: 2
   # 逃跑成功率按扣减前的当前体力加成：每点体力额外 +0.5%——满体力（100）多 50%，
@@ -67,7 +67,7 @@ combat:
   # 吸掉的量转为防具耐久损耗；耐久耗尽则不再吸伤。
   # 远程枪械命中率不受体力影响——这里只描述防具，命中公式本来就不含体力项。
   armor_absorb:
-    tiers: {1: 0.10, 2: 0.18, 3: 0.25}   # 最低级 10% → 最高级 25%
+    tiers: {1: 0.10, 2: 0.20, 3: 0.30}   # 最低级 10% → 最高级 25%
     min_absorb: 1                          # 每次受击至少吸 1 点（防具永远有点用）
 
 infection:
@@ -100,21 +100,21 @@ noise:
   # 每移动一个房间自然衰减
   decay_per_room: 0.0
   sources:
-    gunshot: 4
+    gunshot: 3
     silenced: 1
-    gun_kill: 3
+    gun_kill: 0
     melee_kill: 0
     pry: 2
     sprint: 2
     glass: 1
   horde:
-    threshold: 8
-    end: 4
+    threshold: 9
+    end: 6
     extra_spawn: [3, 6]
     density_mult: 2.0
     # 尸潮被消灭后按下述比例削掉噪音（可配置）。打完一波尸潮等于把整层的
     # 东西都吵醒了——响过之后的死寂应该比来之前更安静。
-    clear_noise_cut: 0.30
+    clear_noise_cut: 0.40
     # 楼梯口守门精英（避战流太强：不能让玩家全程绕着所有战斗走）
     elite:
       monster: gatekeeper     # 守在楼梯口的怪物 ID（skip_levels 之外的层）——地区 1
@@ -171,7 +171,8 @@ loot:
     trinket: [wedding_ring, dog_tag, photo]
     gear: [small_pack, hiking_pack, large_pack]
     # 地区 2 军械补给（房间表引用；物品带 min_region: 2 双重限区）
-    military_supplies: [ballistic_plate]
+    # T4 军用弹药：地区 2 产出（通用 ammo 表在地区 1 被 min_region 过滤，此处补充分）
+    military_supplies: [ballistic_plate, ammo_t4]
   # 近战武器耐久归零后伤害倍率
   broken_weapon_mult: 0.5
   # 搜索多件：拿到第一件后，按 p·decay^(k-1) 续 roll，直到失败或到顶 N
@@ -184,7 +185,7 @@ loot:
 # 现金（局内货币）：搜索时「独立」概率获取的额外掉落，不走类别权重。
 # 与上面的类别掉落互不干扰——摸没摸到物资，都另掷一次骰决定给不给现金。
 loot_cash:
-  chance: 0.12           # 每次搜索独立判定
+  chance: 0.15           # 每次搜索独立判定
   min: 1
   max: 5
 
@@ -242,7 +243,7 @@ mapgen:
   branch_max: 2              # 每个分支挂 1-2 房（死胡同）
   # 高层分支占比更高，探索收益随深度上升
   branch_ratio_by_level:
-    1: 0.20
+    1: 0.25
     2: 0.25
     3: 0.30
     4: 0.35
@@ -266,7 +267,7 @@ mapgen:
     3: 0
     4: 1
     # ---- 地区 2：血税商人（补给线被切断，商人更稀缺） ----
-    6: 1
+    6: 0
     7: 0
     8: 1
     9: 0

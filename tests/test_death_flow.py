@@ -199,7 +199,11 @@ def test_punch_fallback_while_holding_ranged():
         gun_dur = st["weapon"]["durability"]
         eng._acquire = lambda *a, **k: None  # 屏蔽掉落
 
-        await eng._act_attack({})
+        # 拳头命中 -10：约 27% 落空——最多挥 8 次直到造成伤害
+        for _ in range(8):
+            await eng._act_attack({})
+            if st["combat"]["enemies"][0]["hp"] < 50:
+                break
 
         assert st["combat"]["enemies"][0]["hp"] < 50, "挥拳应造成伤害（拳头 1-2）"
         assert st["weapon"]["durability"] == gun_dur, "挥拳不磨损枪"

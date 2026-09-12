@@ -34,7 +34,7 @@ weapons:
     name: 撬棍
     icon: "🔧"
     kind: melee
-    dmg: [6, 10]
+    dmg: [8, 13]
     acc_mod: 0
     crit: 0.05
     noise: 0
@@ -42,14 +42,14 @@ weapons:
     pry: true
     weight: 30
     tier: 1
-    value: 8
+    value: 10
     desc_ai: true
 
   - id: fire_axe
     name: 消防斧
     icon: "🪓"
     kind: melee
-    dmg: [7, 12]
+    dmg: [10, 16]
     acc_mod: -5
     crit: 0.10
     noise: 0
@@ -57,28 +57,28 @@ weapons:
     pry: true
     weight: 10
     tier: 3
-    value: 25
+    value: 28
     desc_ai: true
 
   - id: machete
     name: 砍刀
     icon: "🔪"
     kind: melee
-    dmg: [5, 9]
+    dmg: [7, 11]
     acc_mod: +5
     crit: 0.15
     noise: 0
     durability: 18
     weight: 14
     tier: 1
-    value: 10
+    value: 12
     desc_ai: true
 
   - id: pistol_m9
     name: M9 手枪
     icon: "🔫"
     kind: ranged
-    dmg: [5, 8]
+    dmg: [4, 6]
     acc_mod: +10
     crit: 0.10
     noise_key: gunshot
@@ -86,15 +86,16 @@ weapons:
     ammo_per_shot: 1
     burst: [1, 3]
     weight: 12
+    mag_size: 12
     tier: 2
-    value: 18
+    value: 15
     desc_ai: true
 
   - id: shotgun
     name: 霰弹枪
     icon: "🔫"
     kind: ranged
-    dmg: [16, 24]
+    dmg: [11, 16]
     acc_mod: -5
     crit: 0.15
     noise_key: gunshot
@@ -102,6 +103,7 @@ weapons:
     ammo_per_shot: 2
     aoe: true                 # 全体攻击：一次消耗 2 发，对每只怪单独结算
     weight: 7
+    mag_size: 6
     tier: 3
     value: 28
     desc_ai: true
@@ -110,7 +112,7 @@ weapons:
     name: 消音冲锋枪
     icon: "🔫"
     kind: ranged
-    dmg: [6, 9]
+    dmg: [4, 7]
     acc_mod: +5
     crit: 0.12
     noise_key: silenced
@@ -120,8 +122,9 @@ weapons:
     # 消音+连射本属超模组合，故 tier 抬到 3：改烧稀缺的重弹药（t3）
     # 是它的主要代价，稀有度也控制在霰弹枪一档
     weight: 5
+    mag_size: 30
     tier: 3
-    value: 28
+    value: 26
     desc_ai: true
 
   # ---- 地区 2 · 军事检疫营地军械（P8） ----
@@ -129,7 +132,7 @@ weapons:
     name: 突击步枪
     icon: "🔫"
     kind: ranged
-    dmg: [7, 11]
+    dmg: [5, 8]
     acc_mod: +10
     crit: 0.10
     ammo_type: ammo_t3
@@ -139,8 +142,9 @@ weapons:
     # 代价是没有消音（gunshot 噪音）且更稀有（weight 更低）
     noise_key: gunshot
     weight: 3
+    mag_size: 30
     tier: 3
-    value: 32
+    value: 36
     min_region: 2
     desc_ai: true
 
@@ -148,7 +152,7 @@ weapons:
     name: 冲锋枪
     icon: "🔫"
     kind: ranged
-    dmg: [4, 7]
+    dmg: [3, 5]
     acc_mod: 0
     crit: 0.08
     noise_key: gunshot
@@ -156,8 +160,9 @@ weapons:
     ammo_per_shot: 1
     burst: [3, 5]             # 一次攻击随机射出 3-5 发，每发独立结算伤害与命中
     weight: 6
+    mag_size: 30
     tier: 2
-    value: 20
+    value: 18
     desc_ai: true
 
   # ---- 新增近战（多为 tier1，长矛 tier2）----
@@ -165,20 +170,20 @@ weapons:
     name: 棒球棍
     icon: "⚾"
     kind: melee
-    dmg: [5, 8]
+    dmg: [6, 10]
     acc_mod: +3
     crit: 0.08
     noise: 0
     durability: 22
     weight: 12
     tier: 1
-    value: 6
+    value: 8
     desc_ai: false
   - id: wrench
     name: 活动扳手
     icon: "🔧"
     kind: melee
-    dmg: [5, 9]
+    dmg: [6, 10]
     acc_mod: -2
     crit: 0.05
     noise: 0
@@ -186,46 +191,46 @@ weapons:
     pry: true
     weight: 8
     tier: 1
-    value: 6
+    value: 8
     desc_ai: false
   - id: knife
     name: 匕首
     icon: "🔪"
     kind: melee
-    dmg: [4, 7]
+    dmg: [4, 8]
     acc_mod: +8
     crit: 0.18
     noise: 0
     durability: 15
     weight: 6
     tier: 1
-    value: 8
+    value: 6
     desc_ai: false
   - id: cleaver
     name: 剁骨刀
     icon: "🔪"
     kind: melee
-    dmg: [6, 10]
+    dmg: [7, 12]
     acc_mod: 0
     crit: 0.10
     noise: 0
     durability: 16
     weight: 9
     tier: 1
-    value: 9
+    value: 10
     desc_ai: false
   - id: spear
     name: 长矛
     icon: "🔱"
     kind: melee
-    dmg: [7, 11]
+    dmg: [8, 12]
     acc_mod: +2
     crit: 0.08
     noise: 0
     durability: 20
     weight: 7
     tier: 2
-    value: 12
+    value: 14
     desc_ai: false
 
   # ---- 新增远程（弹药按 tier 通用；无耐久，靠弹药与噪音平衡）----
@@ -233,7 +238,7 @@ weapons:
     name: 钉枪
     icon: "🔫"
     kind: ranged
-    dmg: [5, 8]
+    dmg: [3, 5]
     acc_mod: +4
     crit: 0.10
     noise_key: silenced
@@ -241,6 +246,7 @@ weapons:
     ammo_per_shot: 1
     burst: [2, 3]
     weight: 8
+    mag_size: 10
     tier: 1
     value: 7
     desc_ai: false
@@ -248,7 +254,7 @@ weapons:
     name: 双管霰弹
     icon: "🔫"
     kind: ranged
-    dmg: [14, 20]
+    dmg: [10, 15]
     acc_mod: -8
     crit: 0.15
     noise_key: gunshot
@@ -256,31 +262,66 @@ weapons:
     ammo_per_shot: 2
     aoe: true                 # 全体攻击：一次消耗 2 发，对每只怪单独结算
     weight: 6
+    mag_size: 2
     tier: 2
     value: 16
     desc_ai: false
 
 ammo:
-  # 弹药按 tier 统合：t1/t2/t3 枪械各自通用对应弹药（2026-09 重做）。
+  # 弹药按 tier 统合（P9 重做）：t1-t3 枪械通用对应弹药；t4-t6 为预留档
+  # （weight 0 = 暂无获取渠道，后续军械启用）。
+  # dmg_mult   —— 每发子弹伤害百分比（用户拍板 90/100/105/115/125/150），
+  #               射击时按弹匣内弹种乘算（resolve_attack 经 attacker_meta）
+  # min_region —— 产出绑定：仅在 ≥ 该地区的层级产出（与 1e42c54 掉落过滤同机制）
   # 统一由掉落表与商店出货，qty 是单次拾取量。
   - id: ammo_t1
-    name: 轻弹药
+    name: 劣质弹药
     icon: "🔩"
     qty: [3, 6]
     weight: 30
     value: 3
+    dmg_mult: 0.90
+    min_region: 1
   - id: ammo_t2
     name: 制式弹药
     icon: "🔩"
     qty: [3, 6]
     weight: 35
     value: 4
+    dmg_mult: 1.00
+    min_region: 1
   - id: ammo_t3
-    name: 重弹药
+    name: 精工弹药
     icon: "🔩"
     qty: [2, 4]
     weight: 15
     value: 5
+    dmg_mult: 1.05
+    min_region: 1
+  - id: ammo_t4
+    name: 军用弹药
+    icon: "🔩"
+    qty: [2, 4]
+    weight: 10
+    value: 8
+    dmg_mult: 1.15
+    min_region: 2
+  - id: ammo_t5
+    name: 实验弹药
+    icon: "🔩"
+    qty: [2, 3]
+    weight: 0
+    value: 12
+    dmg_mult: 1.25
+    min_region: 99
+  - id: ammo_t6
+    name: 原型弹药
+    icon: "🔩"
+    qty: [1, 2]
+    weight: 0
+    value: 18
+    dmg_mult: 1.50
+    min_region: 99
 
 consumables:
   # 防弹插板（地区 2 专属）：_act_use 消费——只对 plate_compatible 护甲生效

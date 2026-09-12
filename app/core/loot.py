@@ -78,10 +78,12 @@ def grant(
     item_id: str,
     qty: int = 1,
     durability: int | None = None,
+    clip: tuple[str, int] | None = None,
 ) -> dict[str, Any] | None:
     """把物品放进背包，返回该物品的背包条目。
 
     现金是独立计数资源（不进背包、不占格子），grant 只累加 state["cash"] 并返回 None。
+    clip = (弹种 id, 发数)：P9 弹匣系统——武器实例的弹匣状态随装备↔背包往返保留。
     """
     if item_id == "cash":
         state["cash"] = int(state.get("cash", 0)) + int(qty)
@@ -101,6 +103,9 @@ def grant(
             if durability is not None
             else int(item.get("durability", 0)) or None,
         }
+        if clip:
+            entry["clip_ammo"] = clip[0]
+            entry["clip_count"] = int(clip[1])
     state["inventory"].append(entry)
     return entry
 

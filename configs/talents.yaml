@@ -226,6 +226,19 @@ talents:
     weight: 6
     mods: {stamina_max: 6}
 
+  # ---------------- 弹匣（P9 弹匣系统）----------------
+  - id: extended_mag
+    name: 扩容弹匣
+    desc: 所有枪械弹匣容量 +50%
+    weight: 7
+    mods: {mag_size_mult: 1.5}
+
+  - id: speed_loader
+    name: 快速装填
+    desc: 战斗中装填不再消耗回合（不会引来反击）
+    weight: 6
+    mods: {reload_free: 1}
+
   # ---------------- 趣味（弱，但有用）----------------
   - id: collector
     name: 收藏癖
