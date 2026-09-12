@@ -30,6 +30,10 @@ async def _new_run(cfg):
     eng = await RunEngine.new_run(cfg, None)
     if eng.state.get("pending_decision") == "talent":
         await eng.act("talent", {"index": 0})
+    # 统一隔离随机开局天赋：P7 天赋池里带 stamina_max / brace_acc_bonus_add /
+    # flee_bonus 的天赋都会改变对应数值断言的基线，这里统一清零。
+    # （new_run 选完天赋进地牢后清空是安全的——天赋只在创建时生效一次。）
+    eng.state["talents"] = []
     return eng
 
 
@@ -71,9 +75,14 @@ def test_stamina_clamped_at_max():
 
 
 def test_flee_costs_stamina():
-    """逃跑=冲刺应消耗体力（设计上体力是会被消耗的资源）。"""
+    """逃跑=冲刺应消耗体力（设计上体力是会被消耗的资源）。
+
+    防空测试回归：本测试曾因配置 cost=0 而恒真（assert 20-0==20 永过），
+    导致"逃跑不扣体力"的 bug 逃过全量测试。这里显式要求 cost > 0。
+    """
     cfg = get_config()
     cost = int(cfg.balance["combat"]["flee_stamina_cost"])
+    assert cost > 0, "flee_stamina_cost 必须为正——逃跑不扣体力是回归，不是设计"
 
     async def run():
         eng = await _new_run(cfg)
@@ -90,8 +99,86 @@ def test_flee_costs_stamina():
 
         assert not eng.state["in_combat"], "应已脱离战斗"
         assert eng.state["stamina"] == 20 - cost, f"逃跑应耗 {cost} 体力"
+        assert any("体力 −" in line for line in eng._out), "日志应显示体力消耗"
 
     asyncio.run(run())
+
+
+def test_flee_costs_stamina_even_on_fail():
+    """逃跑失败同样扣体力——冲刺本身就耗力，跑输了也在跑。"""
+    cfg = get_config()
+    cost = int(cfg.balance["combat"]["flee_stamina_cost"])
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["in_combat"] = True
+        # 逃跑失败会触发敌人回合，敌人字段要够 combat.enemy_profile 用
+        eng.state["combat"] = {"enemies": [C.make_enemy(cfg, "walker", 1)]}
+        eng.state["stamina"] = 20
+        eng.state["hp"] = 40
+
+        old = C.try_flee
+        C.try_flee = lambda *a, **k: False  # 强制逃跑失败
+        try:
+            await eng._act_flee({})
+        finally:
+            C.try_flee = old
+
+        assert eng.state["in_combat"], "逃跑失败应仍在战斗"
+        assert eng.state["stamina"] == 20 - cost, f"逃跑失败也应耗 {cost} 体力"
+
+    asyncio.run(run())
+
+
+def test_flee_penalized_by_enemy_count():
+    """敌人越多越难逃：每只额外敌人 −flee_per_enemy，且引擎要传敌人数量。"""
+    cfg = get_config()
+    per_enemy = float(cfg.balance["combat"]["flee_per_enemy"])
+    assert per_enemy > 0, "flee_per_enemy 应为正——多敌人惩罚是需求，不该回退为 0"
+
+    captured = {}
+
+    def fake_try_flee(cfg_, rng_, agi, eagi, stamina=0, enemy_count=1):
+        captured["enemy_count"] = enemy_count
+        return True
+
+    old = C.try_flee
+    C.try_flee = fake_try_flee
+    try:
+        cfg2 = get_config()
+
+        async def run():
+            eng = await _new_run(cfg2)
+            eng.state["in_combat"] = True
+            eng.state["combat"] = {
+                "enemies": [C.make_enemy(cfg2, "walker", 1) for _ in range(3)]
+            }
+            eng.state["stamina"] = 20
+            eng.state["hp"] = 40
+            await eng._act_flee({})
+        asyncio.run(run())
+    finally:
+        C.try_flee = old
+
+    assert captured.get("enemy_count") == 3, (
+        f"引擎应把活敌数量传给 try_flee，实际传了 {captured.get('enemy_count')}"
+    )
+
+    # 概率数值验证：3 只敌人应比 1 只低 2*per_enemy 个百分点
+    base_1 = C.try_flee
+    class FakeRng:
+        def __init__(self):
+            self.last_chance = None
+        def chance(self, p):
+            self.last_chance = p
+            return False
+    rng1, rng3 = FakeRng(), FakeRng()
+    C.try_flee(cfg, rng1, 5, 5, stamina=10, enemy_count=1)
+    C.try_flee(cfg, rng3, 5, 5, stamina=10, enemy_count=3)
+    diff = (rng1.last_chance - rng3.last_chance) * 100
+    assert abs(diff - 2 * per_enemy) < 1e-6, (
+        f"3 只敌人应比 1 只低 {2 * per_enemy}pp，实际差 {diff}pp"
+    )
 
 
 def test_stamina_serialized_to_response():
@@ -200,6 +287,10 @@ if __name__ == "__main__":
     print("✓ 体力封顶不溢出")
     test_flee_costs_stamina()
     print("✓ 逃跑消耗体力")
+    test_flee_costs_stamina_even_on_fail()
+    print("✓ 逃跑失败也扣体力")
+    test_flee_penalized_by_enemy_count()
+    print("✓ 逃跑按敌人数量递减")
     test_stamina_serialized_to_response()
     print("✓ 体力序列化到响应")
     test_brace_costs_stamina_and_adds_buff()

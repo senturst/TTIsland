@@ -51,7 +51,7 @@ def test_default_capacity_is_10():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None  # 隔离随机天赋（packrat 会 +5）
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         assert eng._bag_cap() == _base(cfg), "默认容量应等于 bag_slots"
 
     asyncio.run(run())
@@ -63,13 +63,13 @@ def test_stackable_does_not_consume_slots():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         _fill_to_cap(eng, cfg)
         cap = eng._bag_cap()
         assert len(eng.state["inventory"]) == cap, "应已填满容量"
 
-        # 再拾取可堆叠弹药（ammo_pistol 已在背包里）→ 不溢出
-        ok = eng._acquire("ammo_pistol", 5)
+        # 再拾取可堆叠弹药（ammo_t2 已在背包里）→ 不溢出
+        ok = eng._acquire("ammo_t2", 5)
         assert ok, "已有弹药入包不应溢出"
         assert len(eng.state["inventory"]) == cap, "可堆叠物不占新格"
         assert eng.state["pending_decision"] is None, "未超容量不应触发决策"
@@ -83,7 +83,7 @@ def test_acquire_over_cap_still_grants_and_blocks():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         _fill_to_cap(eng, cfg)
         cap = eng._bag_cap()
 
@@ -103,7 +103,7 @@ def test_discard_back_to_cap_releases_decision():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         _fill_to_cap(eng, cfg)
         eng._acquire("hiking_pack", 1)
         assert eng.state["pending_decision"] == "bag_overflow"
@@ -123,7 +123,7 @@ def test_discard_skip_keeps_blocking():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         _fill_to_cap(eng, cfg)
         eng._acquire("hiking_pack", 1)
         assert eng.state["pending_decision"] == "bag_overflow"
@@ -142,7 +142,7 @@ def test_packrat_talent_adds_capacity():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         T.apply(cfg, eng.state, T.get_by_id(cfg, "packrat"))
         assert eng._bag_cap() == _base(cfg) + 5, "packrat 应 +5 格"
 
@@ -155,7 +155,7 @@ def test_equip_backpack_adds_slots():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         loot.grant(cfg, eng.state, "large_pack", 1, 20)
         before = eng._bag_cap()
         await eng._act_equip({"item": "large_pack"})
@@ -171,7 +171,7 @@ def test_armor_pockets_add_capacity():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         loot.grant(cfg, eng.state, "tactical_vest", 1)
         await eng._act_equip({"item": "tactical_vest"})
         assert eng._bag_cap() == _base(cfg) + int(cfg.item("tactical_vest")["pockets"]), "口袋应叠加进容量"
@@ -186,7 +186,7 @@ def test_unequip_smaller_armor_triggers_overflow():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         # 装备 tactical_vest（口袋 +vest_pockets）
         loot.grant(cfg, eng.state, "tactical_vest", 1)
         await eng._act_equip({"item": "tactical_vest"})
@@ -219,7 +219,7 @@ def test_backpack_serialized_to_response():
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["talent"] = None
+        eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         loot.grant(cfg, eng.state, "hiking_pack", 1, 20)
         await eng._act_equip({"item": "hiking_pack"})
         resp = eng._response()

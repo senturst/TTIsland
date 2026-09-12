@@ -49,6 +49,9 @@ def player_profile(cfg: GameConfig, state: dict) -> dict[str, Any]:
     threshold = float(talents.mod(state, "low_hp_threshold", 0.30))
     if state.get("hp", 1) <= state.get("hp_max", 1) * threshold:
         dmg_pct += float(talents.mod(state, "low_hp_dmg_pct", 0.0))
+    # 处刑人：敌人残血加伤（P7 天赋池）
+    if any(e["hp"] / max(1, e["hp_max"]) < 0.3 for e in (state.get("combat") or {}).get("enemies", [])):
+        dmg_pct += float(talents.mod(state, "execute_dmg_pct", 0.0))
 
     # 尸变模式：全能力 +30%
     if state.get("zombified"):
@@ -200,15 +203,20 @@ def try_flee(
     player_agi: int,
     enemy_agi: int,
     stamina: int = 0,
+    enemy_count: int = 1,
 ) -> bool:
     """逃跑判定：敏捷差决定基础概率，当前体力每点额外 +0.5%（可配）。
 
     stamina 传扣减前的当前体力——"拼了命地跑"：体力越满越容易逃掉。
+    敌人越多越难脱身：每只额外敌人 −2%（flee_per_enemy，可配），
+    被 flee_clamp 钳制。以 1 只为基准，0 只不会出现（逃跑前提是有敌人）。
     """
     c = cfg.balance["combat"]
     chance = c["flee_base"] + c["flee_per_agi"] * (player_agi - enemy_agi)
     stamina_bonus_pct = float(c.get("flee_stamina_bonus_pct", 0))
     chance += stamina * stamina_bonus_pct
+    per_enemy = float(c.get("flee_per_enemy", 0))
+    chance -= per_enemy * max(0, enemy_count - 1)
     chance = max(c["flee_clamp"][0], min(c["flee_clamp"][1], chance))
     return rng.chance(chance / 100.0)
 
@@ -250,7 +258,9 @@ def make_enemy(cfg: GameConfig, monster_id: str, level: int) -> dict[str, Any]:
         "on_hit": m.get("on_hit"),
         "ambush": m.get("ambush", False),
         "boss": m.get("boss", False),
+        "elite": m.get("elite", False),
         "score": m.get("score", 8),
+        "xp": m.get("xp", 10),
     }
     if m.get("abilities"):
         e["abilities"] = [

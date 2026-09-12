@@ -349,6 +349,14 @@ body::after {
 .btn-safe { border-color: rgba(74,140,90,.4); color: var(--safe); }
 .btn-move { border-color: rgba(157,184,157,.22); }
 .btn-ghost { opacity: .62; }
+/* 放弃当局的确认态：全按钮闪烁警示，与丢弃确认同语义 */
+.btn-confirm-giveup {
+  background: rgba(179,64,47,.22) !important;
+  color: #ff9c85 !important;
+  border-color: rgba(179,64,47,.8) !important;
+  opacity: 1 !important;
+  animation: blink .8s step-end infinite;
+}
 .btn-talent {
   text-align: left; width: 100%; padding: .5rem .8rem;
   border-color: rgba(127,224,138,.3); margin-bottom: .3rem;

@@ -303,7 +303,8 @@ def test_grave_pool_eligibility():
     """遗物/墓碑池的约束：tier≤2 远程可被拾取，tier3 重火力被挡。"""
     cfg = get_config()
     assert cfg.legacy_allowed("pistol_m9"), "M9(tier2) 应可进墓碑池"
-    assert cfg.legacy_allowed("silenced_smg"), "消音冲锋枪(tier2) 应可进墓碑池"
+    # 消音冲锋枪提为 tier3 后不再进池——消音+连射若可跨局继承会滚雪球
+    assert not cfg.legacy_allowed("silenced_smg"), "消音冲锋枪(tier3) 不应进池——防滚雪球"
     assert not cfg.legacy_allowed("shotgun"), "霰弹枪(tier3) 不应进池——防滚雪球"
 
 

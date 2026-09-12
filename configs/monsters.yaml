@@ -102,6 +102,21 @@ monsters:
     bite_infection: [6, 10]
     desc: 以尸体为食的变异体，攻击性极强。守着尸堆不愿离开。
 
+  - id: gatekeeper
+    name: 守门者
+    icon: "🗿"
+    <<: *base
+    hp: 14
+    dmg: [2, 4]
+    acc: 50
+    eva: 5
+    speed: 5
+    archetype: brute
+    elite: true               # 楼梯口守卫：不可逃跑，必须消灭才能下楼
+    score: 40
+    xp: 30
+    desc: 不知是谁把守楼梯这件事刻进了它腐烂的本能。它不追人，也不离开。
+
   - id: tyrant_t03
     name: 暴君 T-03
     icon: "👹"

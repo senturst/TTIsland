@@ -46,7 +46,10 @@ def _item_desc(item: dict, kind: str, absorb_pct: float | None = None) -> str:
         if item.get("acc_mod"):
             p.append(f"命中 {item['acc_mod']:+d}")
         if item.get("kind") == "ranged":
-            p.append(f"每发 {item.get('ammo_per_shot', 1)} 弹")
+            if item.get("burst"):
+                p.append(f"连射 {item['burst'][0]}–{item['burst'][1]} 发")
+            else:
+                p.append(f"每发 {item.get('ammo_per_shot', 1)} 弹")
         else:
             p.append("静音")
         if item.get("durability"):
@@ -233,17 +236,23 @@ class RunEngine:
             "zombify_rooms_left": 0,
             "boss_alive": False,
             "boss_lured": 0,
+            "boss_lure_spent": False,
             "campfire_used": False,
             "pending_decision": None,
             "legacy_choices": None,
+            # P7 升级系统（本局内成长，死亡清零）
+            "xp": 0,
+            "growth_level": 0,
+            "pending_levelups": 0,
+            "talents": [],
             "started_at": int(time.time()),
         }
 
         # 开局物资
         for iid, qty in b.get("start_items") or []:
             loot.grant(cfg, state, iid, qty)
-        # 弹药：给通用手枪弹
-        loot.grant(cfg, state, "ammo_pistol", b["ammo_start"])
+        # 弹药：给制式弹药（t2 通用弹，够早期捡到的 t2 枪用）
+        loot.grant(cfg, state, "ammo_t2", b["ammo_start"])
 
         eng = cls(cfg, state, world=world)
         if legacy:
@@ -260,11 +269,10 @@ class RunEngine:
         return eng
 
     # ------------------------------------------------------------------
-    def _draw_talents(self) -> bool:
-        """抽三个待选天赋。返回是否进入待选状态。"""
-        """复活进场时抽三个天赋待选。
+    def _draw_talents(self, reason: str = "spawn") -> bool:
+        """抽三选一天赋并挂起决策。reason: spawn=开局, levelup=局内升级。
 
-        首局也会给——新手不该必须先死一次才能见到这个系统。
+        开局（复活进场）首局也会给——新手不该必须先死一次才能见到这个系统。
         """
         st = self.state
         if (
@@ -273,18 +281,23 @@ class RunEngine:
             or not self.cfg.talents_cfg.get("talents")
         ):
             return False
-        options = talents.draw(self.cfg, self.rng)
+        # 升级抽取时排除已拥有的（开局第一次抽取无此限制）
+        exclude = talents.owned_ids(st) if reason == "levelup" else []
+        options = talents.draw(self.cfg, self.rng, exclude=exclude)
         if not options:
             return False
         st["talent_options"] = [
             {"id": t["id"], "name": t["name"], "desc": t["desc"]} for t in options
         ]
         st["pending_decision"] = "talent"
-        self._log("你在一处废弃的地下室里恢复意识。身上只剩下三样东西能指望：")
+        if reason == "levelup":
+            self._log("你从这场搏杀里悟到了什么。选择你的成长：")
+        else:
+            self._log("你在一处废弃的地下室里恢复意识。身上只剩下三样东西能指望：")
         return True
 
     async def _act_talent(self, payload: dict) -> None:
-        """三选一。选完才真正开始这一局。"""
+        """三选一。开局：选完才真正开始这一局；升级：选完回到行动流。"""
         st = self.state
         idx = payload.get("index", -1)
         options = st.get("talent_options") or []
@@ -298,8 +311,14 @@ class RunEngine:
         st["pending_decision"] = None
         st.pop("talent_options", None)
         self._log(f"【天赋：{talent['name']}】{talent['desc']}")
-        # 选完才正式下地牢，让生命上限类天赋在第一场战斗前生效
-        await self._enter_level(1, first=True)
+        # 开局抽取：选完才正式下地牢，让生命上限类天赋在第一场战斗前生效。
+        # 判据用 level_map（new_run 就把 depth 置 1 了，depth<1 永远不成立），
+        # _enter_level(1, first=True) 生成 level_map 后，开局与局内升级共用这条路。
+        if "level_map" not in st:
+            await self._enter_level(1, first=True)
+        else:
+            # 升级抽取：若还有排队的升级，继续弹下一个三选一
+            self._settle_levelups()
 
     # ------------------------------------------------------------------
     def _apply_legacy(self, legacy: dict) -> None:
@@ -404,6 +423,7 @@ class RunEngine:
         self._log_many(lines)
         st["boss_alive"] = level == self.cfg.max_level
         st["boss_lured"] = 0
+        st["boss_lure_spent"] = False
         await self._enter_room(st["level_map"]["entry"], entering_level=True)
 
     async def _descend(self) -> list[str]:
@@ -516,6 +536,10 @@ class RunEngine:
             self._enter_grave(room)
         elif room["type"] == "merchant":
             self._enter_merchant(room)
+        elif room["type"] == "hazard":
+            self._enter_hazard(room)
+        elif room["type"] == "nest":
+            await self._enter_nest(room)
         else:
             self._log("什么都没有。")
 
@@ -528,11 +552,57 @@ class RunEngine:
                 await self._enter_boss()
             else:
                 self._log("一道向下的楼梯。往下是更黑的地方。")
+                self._enter_stairs_elite(room)
         elif kind == "campfire":
             if st.get("campfire_used"):
                 self._log("一堆冷掉的灰。你用过一次了。")
             else:
                 self._log("有人在这里生过火，还有余温。可以歇一会，但火光会暴露位置。")
+        elif kind == "npc":
+            self._enter_npc(room)
+
+    def _enter_stairs_elite(self, room: dict) -> None:
+        """楼梯口守门精英（避战流太强）：每层出口必刷，不可逃跑，必须消灭。
+
+        skip_levels 里的层（如新手第 1 层）改刷 normal_monster 普通战斗——
+        有威慑但留退路。
+        """
+        st = self.state
+        if room.get("cleared"):
+            return  # 上一局已击杀过（重进房间不重复刷）
+        ecfg = self.cfg.balance["noise"]["horde"].get("elite") or {}
+        skip = ecfg.get("skip_levels") or []
+        if st["depth"] in skip:
+            mid = ecfg.get("normal_monster")
+            if mid and mid in self.cfg.monsters:
+                room["elite_guard"] = True
+                st["room"]["elite_guard"] = True
+                enemies = [combat.make_enemy(self.cfg, mid, st["depth"])]
+                st["combat"] = {"enemies": enemies, "round": 0}
+                st["in_combat"] = True
+                self._log(f"楼梯口蹲着一头{enemies[0]['name']}，抬头盯住了你。")
+            return
+        mid = ecfg.get("monster") or "gatekeeper"
+        if mid not in self.cfg.monsters:
+            return  # 配置指向不存在的怪物时静默跳过（loader 校验兜底）
+        enemies = [combat.make_enemy(self.cfg, mid, st["depth"])]
+        room["elite_guard"] = True
+        st["combat"] = {"enemies": enemies, "round": 0}
+        st["in_combat"] = True
+        st["room"]["elite_guard"] = True
+        e = enemies[0]
+        self._log(f"楼梯口立着一堵肉墙——{e['name']}。它缓缓转过身，堵死了下去的路。")
+        self._log("跑不掉的。想下楼，就得从它身上踏过去。")
+
+    def _elite_guard_active(self) -> bool:
+        """当前战斗里是否有活着的守门精英。"""
+        st = self.state
+        if not st.get("in_combat"):
+            return False
+        return any(
+            e.get("elite") and e["hp"] > 0
+            for e in st.get("combat", {}).get("enemies", [])
+        )
 
     async def _enter_boss(self) -> None:
         st = self.state
@@ -665,6 +735,332 @@ class RunEngine:
             st["room"]["grave"] = {"player_name": "无名遗骸", "gear": [], "looted": False}
             self._log("前一具遗体靠在墙边，装备已经被翻过一次，但似乎还剩点东西。")
 
+    # ==================================================================
+    # 灾害房（P6.2.2）
+    # ==================================================================
+    def _enter_hazard(self, room: dict) -> None:
+        """灾害房：进房先吃一发「开场效果」，随后有 countdown 个行动窗口。
+
+        每个玩家行动（act）都会推进 hazard_countdown；归零时下一次 act
+        触发「恶化」。选择权在玩家：赌一把翻找高价值物资，或者贴边通过。
+        """
+        st = self.state
+        if room.get("resolved"):
+            self._log("灾害已经过去了。地上只剩下痕迹。")
+            return
+        tpl = self.cfg.room_template("hazard", room["tpl"])
+        # 重入同一房间不重复吃开场（房间在地图上存了 hazard_started）
+        if not room.get("hazard_started"):
+            room["hazard_started"] = True
+            room["countdown"] = int(tpl.get("countdown", 3))
+            self._apply_hazard_effect(tpl.get("onset") or {}, "刚踏进去")
+        else:
+            self._log(f"{tpl['name']}。{st['room'].get('hazard_note') or '这里还没安全。'}")
+            return
+        st["room"]["hazard"] = {
+            "id": tpl["id"],
+            "name": tpl["name"],
+            "countdown": room["countdown"],
+            "choices": [
+                {"id": c["id"], "label": c["label"]} for c in tpl.get("choices") or []
+            ],
+        }
+
+    def _apply_hazard_effect(self, eff: dict, when: str) -> None:
+        """灾害效果的通用结算：infection / cut / noise / heal。"""
+        st = self.state
+        if not eff:
+            return
+        if eff.get("infection"):
+            delta = self.rng.rand_value(eff["infection"])
+            old, new = self._add_infection(delta)
+            self._log(f"（{when}·感染 {new - old:+d}）")
+            line = inf_mod.describe_change(self.cfg, old, new)
+            if line:
+                self._log(line)
+        if eff.get("cut"):
+            dmg = int(self.rng.rand_value(eff["cut"]))
+            st["hp"] -= dmg
+            self._log(f"（{when}·HP −{dmg}）")
+        if eff.get("noise"):
+            noise.add(self.cfg, st, int(eff["noise"]))
+            self._log(f"（{when}·噪音 +{int(eff['noise'])}）")
+        if eff.get("heal"):
+            h = int(self.rng.rand_value(eff["heal"]))
+            before = st["hp"]
+            st["hp"] = min(st["hp_max"], st["hp"] + h)
+            self._log(f"（{when}·HP +{st['hp'] - before}）")
+
+    async def _tick_hazard(self) -> None:
+        """每次玩家行动后推进灾害倒计时。归零 → 恶化一次并解除。"""
+        st = self.state
+        hz = st.get("room", {}).get("hazard")
+        if not hz:
+            return
+        room = mapgen.current_room(st["level_map"])
+        room["countdown"] = int(room.get("countdown", 0)) - 1
+        hz["countdown"] = max(0, room["countdown"])
+        if room["countdown"] > 0:
+            self._log(f"灾害还在持续。你有 {room['countdown']} 个行动的时间离开或解决它。")
+            return
+        tpl = self.cfg.room_template("hazard", room["tpl"])
+        self._log("** 灾害恶化了！**")
+        self._apply_hazard_effect(tpl.get("worsening") or {}, "恶化")
+        room["resolved"] = True          # 恶化后灾害平息，不再反复结算
+        st["room"].pop("hazard", None)
+
+    async def _act_hazard(self, payload: dict) -> None:
+        """灾害房抉择：赌一把（grab/dig）或安全通过（press_on）。
+
+        outcomes 走事件同款加权语法，但效果结算走 _apply_hazard_effect +
+        loot_category/quality——比事件多一个品质加成（灾害房的高风险溢价）。
+        """
+        st = self.state
+        room = mapgen.current_room(st["level_map"])
+        hz = st.get("room", {}).get("hazard")
+        if not hz or room.get("resolved"):
+            self._log("这里没有要处理的灾害。")
+            return
+        tpl = self.cfg.room_template("hazard", room["tpl"])
+        choice = next(
+            (c for c in tpl.get("choices") or [] if c["id"] == payload.get("choice")),
+            None,
+        )
+        if not choice:
+            self._log("你犹豫了。")
+            return
+
+        if choice.get("noise"):
+            noise.add(self.cfg, st, int(choice["noise"]))
+
+        outcome = self.rng.weighted_choice(
+            choice["outcomes"], [o["p"] for o in choice["outcomes"]]
+        )
+        self._log(outcome.get("text", ""))
+        self._apply_hazard_effect(outcome, "结算")
+        if outcome.get("loot_category"):
+            quality = int(outcome.get("quality", 0))
+            for iid, qty in loot.roll_loot(
+                self.cfg, self.rng, st, outcome["loot_category"], 1, quality
+            ):
+                self._acquire(iid, qty)
+                self._log(f"获得 {loot.describe(self.cfg, iid, qty)}。")
+
+        # 任何抉择都算解决：这个房间的灾害交互到此为止（倒计时随之解除）
+        room["resolved"] = True
+        st["room"].pop("hazard", None)
+
+        if st["hp"] <= 0:
+            await self._die("被灾害吞没")
+            return
+        self._check_horde()
+
+    # ==================================================================
+    # 变异巢穴（P6.2.2）
+    # ==================================================================
+    async def _enter_nest(self, room: dict) -> None:
+        """巢穴：进房必遇敌（模板 enemy_bonus 额外加怪）。
+
+        清巢奖励不在这里发——等 _enemy_round 判定战斗结束、房间 cleared 时
+        由 _nest_harvest 发放（战斗中途逃跑不算清巢，绕路赌输了就是输了）。
+        """
+        st = self.state
+        if room.get("cleared"):
+            self._log("被掏空的巢穴。组织已经干瘪发黑。")
+            return
+        tpl = self.cfg.room_template("nest", room["tpl"])
+        enemies = combat.spawn_encounter(
+            self.cfg, self.rng, st["depth"],
+            bonus=int(tpl.get("enemy_bonus", 2) or 0),
+        )
+        if st.get("horde"):
+            enemies += combat.spawn_horde(self.cfg, self.rng, st["depth"])
+        st["combat"] = {"enemies": enemies, "round": 0}
+        st["in_combat"] = True
+        self._log("你惊动了整个巢。它们从组织的褶皱里涌了出来。")
+        first = enemies[0]
+        mcfg = self.cfg.monster(first["id"])
+        desc = await flavor.render(
+            "encounter_open",
+            {
+                "level_name": self.cfg.level_theme(st["depth"])["name"],
+                "level": st["depth"],
+                "monster_name": first["name"],
+                "count": len(enemies),
+                "monster_desc": mcfg.get("desc", ""),
+            },
+            target_id=f"nest:{st['depth']}:{tpl['id']}:{len(enemies)}",
+            state=st,
+        )
+        self._log(desc)
+        names = "、".join(f"{e['name']}({e['hp']})" for e in enemies)
+        self._log(f"敌人：{names}")
+
+    def _nest_harvest(self) -> None:
+        """清巢奖励：割下巢穴组织换取高价值物资（在战斗结束处调用）。"""
+        st = self.state
+        room = mapgen.current_room(st["level_map"])
+        if room.get("type") != "nest" or room.get("harvested"):
+            return
+        room["harvested"] = True
+        tpl = self.cfg.room_template("nest", room["tpl"])
+        tables = tpl.get("harvest_tables") or ["material"]
+        rolls = int(tpl.get("harvest_rolls", 2))
+        quality = int(tpl.get("harvest_quality", 1))
+        found: list[str] = []
+        for _ in range(rolls):
+            cat = self.rng.choice(tables)
+            for iid, qty in loot.roll_loot(self.cfg, self.rng, st, cat, 1, quality):
+                self._acquire(iid, qty)
+                found.append(loot.describe(self.cfg, iid, qty))
+        cash = tpl.get("harvest_cash")
+        if cash:
+            amt = self.rng.rand_range_int(cash)
+            self._acquire("cash", amt)
+            found.append(f"现金 ×{amt}")
+        self._log(
+            "你从巢穴壁上割下了还没坏死的部分——"
+            + ("、".join(found) if found else "但没什么能用的。")
+        )
+
+    # ==================================================================
+    # 幸存者 NPC（P6.2.2）
+    # ==================================================================
+    def _enter_npc(self, room: dict) -> None:
+        """幸存者：活人交易点。只收废料（拾荒者不认纸币）。
+
+        感染 ≥ 75（狂躁档，npc_hostile）时对方先动手——你看起来已经不像人了。
+        每层至多 1 个（mapgen 保证）；交易过一次后离开即收场（防双向边刷人道）。
+        """
+        st = self.state
+        if room.get("resolved"):
+            self._log("这里已经没有人了。")
+            return
+        if st["room"].get("npc"):
+            self._log("那个身影还在，隔着一段安全距离盯着你。")
+            return
+
+        tpl = self.cfg.room_template("special", "survivor_npc")
+        threshold = int(tpl.get("hostile_if_infection_ge", 75))
+        if st["infection"] >= threshold:
+            # 敌对：触发遭遇（用 Walker 们不成体统——用普通遭遇表更合理）
+            self._log(
+                "对方看清你的脸后猛地后退，抓起东西朝你砸过来："
+                "「怪物！滚开！」——你感染太深，在对方眼里你已经不是人了。"
+            )
+            room["resolved"] = True
+            enemies = combat.spawn_encounter(self.cfg, self.rng, st["depth"])
+            st["combat"] = {"enemies": enemies, "round": 0}
+            st["in_combat"] = True
+            names = "、".join(f"{e['name']}({e['hp']})" for e in enemies)
+            self._log(f"敌人：{names}")
+            return
+
+        # 铺货：从商人 other_pool 抽几件，废料价 = value × scrap_rate
+        npc_cfg = self.cfg.balance.get("survivor_npc", {}) or {}
+        rate = float(tpl.get("scrap_rate", 0.6))
+        pool = self.cfg.balance.get("merchant", {}).get("other_pool") or []
+        rolls = int(npc_cfg.get("stock_rolls", 2))
+        stock: list[dict] = []
+        seen: set[str] = set()
+        for _ in range(rolls):
+            if not pool:
+                break
+            iid = self.rng.choice(pool)
+            if iid in seen:
+                continue
+            seen.add(iid)
+            value = int(self.cfg.item(iid).get("value", 1))
+            stock.append({
+                "id": iid,
+                "cost": max(1, int(round(value * rate))),
+                "value": value,
+                "kind": self.cfg.item_kind(iid),
+                "sold": False,
+            })
+        st["room"]["npc"] = {"stock": stock, "gift_chance": float(tpl.get("gift_chance", 0.4))}
+        if stock:
+            names = "、".join(f"{self.cfg.item(s['id'])['name']}（🧱{s['cost']}）" for s in stock)
+            self._log(
+                f"一个裹着防尘布的身影从掩体后探出头，指了指你背包里的废铁。"
+                f"他愿意用这些换：{names}。"
+            )
+        else:
+            self._log("一个幸存者朝你比了个手势——他没什么可交易的，但也不打算找麻烦。")
+
+    async def _act_npc(self, payload: dict) -> None:
+        """幸存者交互：buy（废料换物）/ share（分食物，人道+回赠）/ leave。"""
+        st = self.state
+        cfg = self.cfg
+        room = mapgen.current_room(st["level_map"])
+        npc = st["room"].get("npc")
+        if room.get("resolved") or not npc:
+            self._log("这里没有人。")
+            return
+        choice = payload.get("choice")
+
+        if choice == "leave":
+            room["resolved"] = True
+            st["room"].pop("npc", None)
+            self._log("你们互相点了点头，各自继续赶路。")
+            return
+
+        if choice == "buy":
+            iid = payload.get("item")
+            entry = next((s for s in npc["stock"] if s["id"] == iid), None)
+            if not entry or entry.get("sold"):
+                self._log("那件东西已经换出去了。")
+                return
+            cost = int(entry["cost"])
+            if loot.count(st, "scrap") < cost:
+                self._log(f"废料不够——他要 🧱{cost}，你只有 🧱{loot.count(st, 'scrap')}。")
+                return
+            loot.remove(st, "scrap", cost)
+            self._acquire(iid, 1)
+            entry["sold"] = True
+            st["humanity"] += int(self.cfg.room_template("special", "survivor_npc").get("buy_humanity", 1))
+            self._log(f"你用 {cost} 废料换来了 {cfg.item(iid)['name']}。（人道 +1）")
+            return
+
+        if choice == "share":
+            if npc.get("shared"):
+                self._log("你已经分过一次了。对方的自尊心不允许你再施舍第二次。")
+                return
+            # 分食物：需要身上有「能吃/能喝」的消耗品（有治疗量或明确食物/水）
+            food_ids = [
+                e["id"] for e in st["inventory"]
+                if cfg.item_kind(e["id"]) == "consumable"
+                and (cfg.item(e["id"]).get("heal") or e["id"] in ("canned", "clean_water"))
+            ]
+            if not food_ids:
+                self._log("你翻遍背包，没什么能分给他的食物。")
+                return
+            fid = next(
+                (i for i in food_ids if loot.count(st, i) > 0), None
+            )
+            if not fid:
+                self._log("你翻遍背包，没什么能分给他的食物。")
+                return
+            loot.remove(st, fid, 1)
+            tpl = cfg.room_template("special", "survivor_npc")
+            st["humanity"] += int(tpl.get("share_humanity", 5))
+            npc["shared"] = True
+            self._log(
+                f"你把{cfg.item(fid)['name']}掰了一半递过去。他愣了一下，接了。"
+                f"（人道 +{tpl.get('share_humanity', 5)}）"
+            )
+            if self.rng.chance(float(npc.get("gift_chance", 0.4))):
+                pool = cfg.balance.get("merchant", {}).get("other_pool") or []
+                if pool:
+                    gid = self.rng.choice(pool)
+                    self._acquire(gid, 1)
+                    self._log(f"他犹豫了一下，从怀里摸出{cfg.item(gid)['name']}塞回你手里：「拿着。谢谢。」")
+            room["resolved"] = True
+            st["room"].pop("npc", None)
+            return
+
+        self._log("你不明白自己想做什么。")
+
     def _enter_merchant(self, room: dict) -> None:
         """商人房间：进入时随机铺货（1 武器 / 1 装备 / 1 背包 / 3 其他），
         并按概率决定商人类型（普通 / 感染）与是否触发「作者怜悯」。"""
@@ -770,6 +1166,10 @@ class RunEngine:
             else:
                 await handler(payload)
                 if st["status"] == "active":
+                    # 灾害倒计时：每个行动都推进（搜刮/移动/攻击…）。
+                    # 归零 → 恶化。注意 _act_hazard 自己解决灾害后 hazard 已弹掉，不会重复结算。
+                    if st["room"].get("hazard"):
+                        await self._tick_hazard()
                     for line in level_rules.tick_turn(self.cfg, st):
                         self._log(line)
                     if st.get("evac_countdown") is not None and st["evac_countdown"] <= 0:
@@ -857,7 +1257,7 @@ class RunEngine:
             self._log("先解决眼前的东西。")
             return
         room = mapgen.current_room(st["level_map"])
-        if room["type"] not in ("loot", "combat", "empty", "grave", "event", "special"):
+        if room["type"] not in ("loot", "combat", "empty", "grave", "event", "special", "nest", "hazard"):
             self._log("这里没什么可翻的。")
             return
         ok, why = level_rules.can_search(self.cfg, st)
@@ -992,16 +1392,30 @@ class RunEngine:
             self._log("你手上是空的。")
             return
 
+        shots = 1
         if ranged:
             if wcfg.get("kind") != "ranged":
                 self._log("这不是枪。")
                 return
             atype = wcfg["ammo_type"]
             need = int(wcfg.get("ammo_per_shot", 1))
-            if loot.count(st, atype) < need:
-                self._log(f"{self.cfg.item(atype)['name']}不够了。")
-                return
-            loot.remove(st, atype, need)
+            # 连射武器（burst）：一次攻击随机射出 N 发，弹药不足时有多少打多少。
+            # 单发武器弹药不足则打不出。
+            if wcfg.get("burst"):
+                lo, hi = wcfg["burst"]
+                shots = self.rng.randint(int(lo), int(hi))
+                have = loot.count(st, atype)
+                if have < 1:
+                    self._log(f"{self.cfg.item(atype)['name']}不够了。")
+                    return
+                shots = min(shots, have)
+            else:
+                shots = need
+                if loot.count(st, atype) < need:
+                    self._log(f"{self.cfg.item(atype)['name']}不够了。")
+                    return
+            loot.remove(st, atype, shots)
+            # 噪音按一次攻击算一次——扫射再密，动静也只是一轮枪声
             noise.add(self.cfg, st, wcfg.get("noise_key", "gunshot"))
         else:
             if wcfg.get("kind") != "melee":
@@ -1025,6 +1439,15 @@ class RunEngine:
             self._log("你扣下扳机，霰弹横扫向所有敌人！")
             for enemy in alive:
                 await self._player_hit_one(enemy, pp, ranged)
+        elif shots > 1:
+            # 连射：每发独立 roll 命中与伤害（复用单敌结算）。当前目标倒下后
+            # 剩余发数自动转向下一个敌人——扫射不看弹匣里的仇恨。
+            self._log(f"你扣住扳机扫射，{wcfg['name']}倾泻出 {shots} 发弹药！")
+            for _ in range(shots):
+                alive = [e for e in st["combat"]["enemies"] if e["hp"] > 0]
+                if not alive:
+                    break
+                await self._player_hit_one(alive[0], pp, ranged)
         else:
             target = payload.get("target")
             enemy = enemies[0]
@@ -1124,6 +1547,12 @@ class RunEngine:
         self._grave_finish_take(uid)
         self._check_bag_overflow()
 
+    def _stamina_max(self) -> int:
+        """体力上限 = 配置基础值 + 天赋 stamina_max（P7）。"""
+        return int(self.cfg.balance["player"]["stamina"]) + int(
+            talents.mod(self.state, "stamina_max", 0)
+        )
+
     def _grave_finish_take(self, uid: str) -> None:
         """真正把尸体上的某件塞进背包，并从尸体移除。"""
         st = self.state
@@ -1188,6 +1617,14 @@ class RunEngine:
         st["score"] += int(enemy.get("score", 8))
         self._log(f"{enemy['name']}倒下了。")
 
+        # P7 升级系统：XP 累积 + 精英/Boss 直升一级
+        self._grant_xp(enemy)
+        # 肾上腺素：击杀回血
+        heal = int(talents.mod(st, "kill_heal", 0))
+        if heal and st["hp"] < st["hp_max"]:
+            st["hp"] = min(st["hp_max"], st["hp"] + heal)
+            self._log(f"你喘了口气。（HP +{heal}）")
+
         if ranged:
             noise.add(self.cfg, st, "gun_kill")
         else:
@@ -1225,7 +1662,21 @@ class RunEngine:
             mapgen.current_room(st["level_map"])["cleared"] = True
             st["room"]["cleared"] = True
             self._log("这一片清干净了。")
+            # 巢穴清完 → 割巢拿高价值掉落（P6.2.2）
+            self._nest_harvest()
+            # 尸潮期间清空战斗 = 消灭一波尸潮：潮水退去 + 噪音按
+            # clear_noise_cut 削减（打退追兵后，死寂反而比来之前更彻底）
+            if st.get("horde"):
+                noise.cut_after_wave_clear(self.cfg, st)
+                cut = float(
+                    self.cfg.balance["noise"]["horde"].get("clear_noise_cut", 0)
+                )
+                self._log("追兵被你打退了，潮水正在退去。")
+                if cut > 0:
+                    self._log(f"四周安静下来。（噪音 −{round(cut * 100)}%）")
             self._check_horde()
+            # P7：战斗结束 → 结算待处理的升级（弹三选一）
+            self._settle_levelups()
             return
 
         for line in level_rules.on_combat_turn(self.cfg, st):
@@ -1308,22 +1759,87 @@ class RunEngine:
             self._log("** 噪音到了临界点，整层都动起来了。**")
             self._log("脚步声从四面八方涌来。尸潮来了。")
 
+    # ------------------------------------------------------------------
+    # P7 升级系统（本局内成长，死亡清零）
+    #
+    # 经验来源：击杀按怪物 xp 配置累积；守门精英 / Boss 击杀**直接**触发
+    # 一次三选一（不走 XP 条——精英奖励要有即时仪式感）。
+    # 普通怪 XP 攒满 xp_next() → 也触发三选一。
+    # 结算时机：pending_levelups 在战斗清空后统一弹出（不打断战斗节奏）。
+    # ------------------------------------------------------------------
+    def _growth_cfg(self) -> dict:
+        return self.cfg.balance.get("growth") or {}
+
+    def _xp_next(self) -> int:
+        """升到下一级所需的 XP（首级 xp_base，每级 ×xp_curve）。"""
+        g = self._growth_cfg()
+        base = float(g.get("xp_base", 60))
+        curve = float(g.get("xp_curve", 1.4))
+        lvl = int(self.state.get("growth_level", 0))
+        return max(1, int(round(base * (curve ** lvl))))
+
+    def _grant_xp(self, enemy: dict) -> None:
+        st = self.state
+        g = self._growth_cfg()
+        if not g:
+            return
+        xp = int(enemy.get("xp", 0))
+        if xp <= 0:
+            return
+        # 精英/Boss：直接升 1 级（承诺兑现：打赢精英获得一个额外天赋），不走 XP 条
+        if enemy.get("elite") or enemy.get("boss"):
+            st["pending_levelups"] = int(st.get("pending_levelups", 0)) + 1
+            self._log("肾上腺素仍在翻涌——你感到自己变强了。")
+            return
+        # 普通怪：攒条升级（可能连升）
+        st["xp"] = int(st.get("xp", 0)) + xp
+        while st["xp"] >= self._xp_next():
+            st["xp"] -= self._xp_next()
+            st["growth_level"] = int(st.get("growth_level", 0)) + 1
+            st["pending_levelups"] = int(st.get("pending_levelups", 0)) + 1
+            self._log("** 你变强了。**")
+
+    def _settle_levelups(self) -> None:
+        """战斗清空后结算待处理的升级：弹出三选一（一次弹一个，选完再弹）。"""
+        st = self.state
+        if int(st.get("pending_levelups", 0)) <= 0:
+            return
+        if st.get("pending_decision"):  # 已有别的决策在排队
+            return
+        if self._draw_talents(reason="levelup"):
+            st["pending_levelups"] = int(st.get("pending_levelups", 0)) - 1
+
     async def _act_flee(self, payload: dict) -> None:
         st = self.state
         if not st.get("in_combat"):
             self._log("没什么好逃的。")
             return
         alive = [e for e in st["combat"]["enemies"] if e["hp"] > 0]
+        # 守门精英不可逃跑：楼梯口就一条路，绕是绕不过去的
+        if any(e.get("elite") for e in alive):
+            self._log("它堵着楼梯口——身后就是绝路，你没地方可退。")
+            return
         fastest = max((e.get("speed", 5) for e in alive), default=5)
         agi = combat.player_agility(st) + int(talents.mod(st, "flee_bonus", 0)) // 5
+        # 敌人越多越难脱身：每只额外敌人 −2%（flee_per_enemy，可配）
+        enemy_count = len(alive)
         # 体力加成按扣减前的当前体力计：体力越满越容易逃掉（每点 +0.5%，可配）
-        if combat.try_flee(self.cfg, self.rng, agi, fastest, stamina=st["stamina"]):
+        cost = int(self.cfg.balance["combat"].get("flee_stamina_cost", 0))
+        ok = combat.try_flee(
+            self.cfg, self.rng, agi, fastest,
+            stamina=st["stamina"], enemy_count=enemy_count,
+        )
+        # 逃跑=冲刺：无论成败都耗体力（跑成了甩掉它们，跑输了也在拼命跑）
+        if cost:
+            st["stamina"] = max(0, st["stamina"] - cost)
+        if ok:
             st["in_combat"] = False
             noise.add(self.cfg, st, "sprint")
-            self._log("你转身就跑，把它们甩在了身后。（噪音 +2）")
+            self._log(f"你转身就跑，把它们甩在了身后。（噪音 +2，体力 −{cost}）" if cost
+                      else "你转身就跑，把它们甩在了身后。（噪音 +2）")
             self._check_horde()
         else:
-            self._log("你没能甩掉它们。")
+            self._log(f"你没能甩掉它们。（体力 −{cost}）" if cost else "你没能甩掉它们。")
             await self._enemy_round()
 
     async def _act_repair(self, payload: dict) -> None:
@@ -1362,7 +1878,7 @@ class RunEngine:
         if item.get("heal_stamina"):
             before = st.get("stamina", 0)
             st["stamina"] = min(
-                self.cfg.balance["player"]["stamina"],
+                self._stamina_max(),
                 before + int(item["heal_stamina"]),
             )
             parts.append(f"体力 +{st['stamina'] - before}")
@@ -1398,7 +1914,9 @@ class RunEngine:
             self._log("现在没东西需要你瞄准。")
             return
         cost = int(self.cfg.balance["combat"].get("brace_stamina_cost", 0))
-        bonus = int(self.cfg.balance["combat"].get("brace_acc_bonus", 0))
+        bonus = int(self.cfg.balance["combat"].get("brace_acc_bonus", 0)) + int(
+            talents.mod(st, "brace_acc_bonus_add", 0)
+        )
         turns = int(self.cfg.balance["combat"].get("brace_turns", 3))
         if st.get("stamina", 0) < cost:
             self._log("体力不够，没法稳住准星。")
@@ -1900,7 +2418,7 @@ class RunEngine:
         old, new = self._add_infection(int(tpl.get("infection", 0)))
         sta_before = st.get("stamina", 0)
         st["stamina"] = min(
-            self.cfg.balance["player"]["stamina"], sta_before + int(tpl.get("stamina", 0))
+            self._stamina_max(), sta_before + int(tpl.get("stamina", 0))
         )
         # 每个效果都要有可见反馈——漏了体力的汇报，玩家会以为"加了但没生效"（罐头同款教训）
         parts = [f"HP +{st['hp'] - before}", f"感染 {new - old}"]
@@ -1922,7 +2440,11 @@ class RunEngine:
             self._log("这里没有楼梯。")
             return
         if st.get("in_combat"):
-            self._log("有东西挡在路上。")
+            # 守门精英给出针对性提示，普通战斗维持原样
+            if self._elite_guard_active():
+                self._log("它挡在楼梯口。不解决它，你连一级台阶都下不去。")
+            else:
+                self._log("有东西挡在路上。")
             return
         self._log_many(await self._descend())
 
@@ -1962,18 +2484,52 @@ class RunEngine:
             return
         threshold = int(self.cfg.levels_cfg["boss"]["lure"]["noise_threshold"])
         turns = int(self.cfg.levels_cfg["boss"]["lure"]["lure_turns"])
+        chance = float(self.cfg.levels_cfg["boss"]["lure"].get("success_chance", 1.0))
         need = max(0, threshold - noise.value(st))
         if need > 0:
-            st["noise"] = float(noise.add(self.cfg, st, need))
+            # noise.add 返回增量，noise.add 内部已写入 st["noise"]——
+            # 此前把增量覆写回 st["noise"] 造成噪音震荡、永远到不了阈值（潜伏 bug）。
+            noise.add(self.cfg, st, need)
             self._log(f"你砸碎了身边的玻璃，用力敲打栏杆。（噪音 +{need}）")
         else:
             self._log("噪音已经够了。")
         if noise.value(st) >= threshold:
+            # 无论 need 是多少（首次堆满、还是 Boss 战里噪音已在阈值上）都要过
+            # success_chance——否则残血玩家进 Boss 战后 noise 保持 ≥threshold，
+            # need=0 无限白嫖重试，失败代价就没了。
+            if not self.rng.chance(chance):
+                # 暴君不完全受噪音支配：它循声转过来——冲着你来了。
+                # 失败代价 = 立刻进入 Boss 战（而不是白耗一回合后免费重试：
+                # 那样失败毫无成本，撤离层倒计时 42 根本不紧，lure 依旧通行证）。
+                # 真实抉择是：要么硬拼杀出去，要么赌下一次判定再引开它。
+                # 注意：一旦进过 Boss 战，本层不再允许 lure——否则战斗中
+                # 反复 lure 期望成功率≈1（1-(1-p)^k），lure 又成通行证。
+                st["boss_lure_spent"] = True
+                boss_id = self.cfg.levels_cfg["boss"]["id"]
+                enemies = combat.spawn_encounter(self.cfg, self.rng, st["depth"], boss=True)
+                st["combat"] = {"enemies": enemies, "round": 0}
+                st["in_combat"] = True
+                st["boss_seen"] = True
+                self._log(
+                    "它顿了一下，头颅缓缓转向你——然后径直朝你走来。"
+                    "噪音对它没用，它要的是安静。"
+                )
+                return
             st["boss_lured"] = turns
             st["boss_alive"] = False
             st["in_combat"] = False
             st["combat"] = {"enemies": [], "round": 0}
             self._log("它循着声音转过身，慢慢走开了。撤离点空出来了。")
+            # 制造的噪音同样会引来尸潮（阈值 8 < lure 阈值 9）：引开暴君的代价是
+            # 在尸潮围上来前冲向直升机。别处每次 noise.add 都跟着 _check_horde，
+            # 唯独这里漏了——补上，让 lure 成为高风险抉择而非免费通行证。
+            if self._check_horde():
+                self._log("但那些噪音也把别的东西引来了……")
+                st["in_combat"] = True
+                st["combat"] = {
+                    "enemies": combat.spawn_horde(self.cfg, self.rng, st["depth"]),
+                    "round": 0,
+                }
 
     async def _act_status(self, payload: dict) -> None:
         st = self.state
@@ -2009,9 +2565,10 @@ class RunEngine:
 
         # 天赋效果：选中后只在顶部 UI 显示名字，玩家很容易忘掉具体加成，
         # 这里把效果明文打出来，配合顶部 chip 的悬停提示双保险。
-        t = talents.summary(st)
-        if t:
-            self._log(f"  天赋：{t['name']} —— {t['desc']}")
+        ts = talents.summary(st)
+        if ts:
+            for t in ts:
+                self._log(f"  天赋：{t['name']} —— {t['desc']}")
 
         # 当前生效的临时增益（瞄准等），让玩家清楚自己这回合的命中加成从哪来
         if st.get("buffs"):
@@ -2188,7 +2745,7 @@ class RunEngine:
                 "hp": st["hp"],
                 "hp_max": st["hp_max"],
                 "stamina": st.get("stamina", 0),
-                "stamina_max": int(self.cfg.balance["player"]["stamina"]),
+                "stamina_max": self._stamina_max(),
                 "infection": st["infection"],
                 "infection_band": band,
                 "noise": round(noise.value(st), 1),
@@ -2199,6 +2756,7 @@ class RunEngine:
                 "turn": st["turn"],
                 "kills": st["kills"],
                 "score": st["score"],
+                "humanity": int(st.get("humanity", 0)),
                 "evac_countdown": st.get("evac_countdown"),
                 "zombified": bool(st.get("zombified")),
                 "weapon": {
@@ -2262,6 +2820,26 @@ class RunEngine:
                     "resolved": bool(st.get("room", {}).get("resolved")),
                     "total": lmap.get("total", 0),
                     "searched": st.get("room", {}).get("searched", False),
+                    # 灾害房状态（P6.2.2）：倒计时 + 抉择
+                    "hazard": st.get("room", {}).get("hazard"),
+                    # 幸存者货架（P6.2.2）
+                    "npc": (
+                        {
+                            "stock": [
+                                {
+                                    "id": s["id"],
+                                    "name": self.cfg.item(s["id"])["name"],
+                                    "kind": s["kind"],
+                                    "cost": int(s["cost"]),
+                                    "sold": bool(s.get("sold")),
+                                    "desc": _item_desc(self.cfg.item(s["id"]), s["kind"]),
+                                }
+                                for s in npc["stock"]
+                            ],
+                            "shared": bool(npc.get("shared")),
+                        }
+                        if (npc := st.get("room", {}).get("npc")) else None
+                    ),
                     "grave": (
                         {
                             "player_name": st["room"]["grave"].get("player_name", "无名者"),
@@ -2297,7 +2875,10 @@ class RunEngine:
             "epitaph": st.get("epitaph"),
             "death_cause": st.get("death_cause"),
             "talent_options": st.get("talent_options"),
-            "talent": talents.summary(st),
+            "talent": talents.summary(st),   # 兼容字段（旧前端单天赋）
+            "talents": talents.summary(st),  # 多天赋列表（P7 升级系统）
+            "xp": {"cur": int(st.get("xp", 0)), "next": self._xp_next(),
+                   "level": int(st.get("growth_level", 0))},
             "legacy_choices": [
                 {"name": c["name"], "index": i, "tier": c.get("tier", 1),
                  "passes": c.get("passes", 0)}
@@ -2371,6 +2952,9 @@ class RunEngine:
         # 没有待决策、且本局已结束 —— 这才是真正的"无事可做"
         if st["status"] != "active":
             return acts
+        # 开局天赋还没选（未下地牢）：没有房间状态，决策选完才进层
+        if "level_map" not in st:
+            return acts
 
         room = mapgen.current_room(st["level_map"])
         r = st["room"]
@@ -2378,10 +2962,13 @@ class RunEngine:
         # Boss 的"引开"必须**即使正在交战**也可用。
         # 这一条放在 in_combat 的提前返回之前——否则玩家一旦被拖进 Boss 战，
         # 就只能硬拼到死，而"制造噪音引开绕行"这个设计意图永远用不上。
+        # 例外：本层 lure 已失败过一次（boss_lure_spent）——暴君已经识破噪音，
+        # 战斗中反复 lure 的期望成功率≈1，必须封死，否则它又成了通行证。
         if (
             st.get("boss_alive")
             and st.get("boss_seen")          # 得先真的碰上它，不能隔空引开
             and st.get("boss_lured", 0) <= 0
+            and not st.get("boss_lure_spent")
         ):
             acts.append({"id": "lure", "label": "制造噪音引开它", "kind": "danger"})
 
@@ -2407,11 +2994,29 @@ class RunEngine:
             if st["depth"] == self.cfg.max_level:
                 if not st.get("boss_alive") or st.get("boss_lured", 0) > 0:
                     acts.append({"id": "evac", "label": "登上直升机", "kind": "primary"})
+            elif self._elite_guard_active():
+                # 守门精英还站着：不给下楼按钮，只有打
+                acts.append({"id": "attack", "label": "攻击", "kind": "danger"})
+                if (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "ranged":
+                    acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
             else:
                 acts.append({"id": "descend", "label": "下一层", "kind": "primary"})
 
         if room.get("special_kind") == "campfire" and not st.get("campfire_used"):
             acts.append({"id": "campfire", "label": "在火边休息", "kind": "safe"})
+
+        # 灾害房抉择（P6.2.2）
+        if r.get("hazard"):
+            for c in r["hazard"]["choices"]:
+                acts.append({
+                    "id": "hazard", "label": c["label"],
+                    "choice": c["id"], "kind": "danger",
+                })
+
+        # 幸存者交互（P6.2.2）：面板级数据走 state.npc，命令区只放核心抉择
+        if r.get("npc") and not room.get("resolved"):
+            acts.append({"id": "npc", "label": "分他一点食物", "choice": "share", "kind": "safe"})
+            acts.append({"id": "npc", "label": "离开", "choice": "leave", "kind": "ghost"})
 
         if r.get("event"):
             for c in r["event"]["choices"]:
@@ -2436,7 +3041,11 @@ class RunEngine:
         # 手电耗尽时搜刮必然失败——那就不要给这个按钮。
         # 否则玩家（和自动模拟）会陷入"反复点击无效的搜刮"的死循环。
         # 同时必须和 _act_search 允许的类型保持一致，否则会出现"点搜索却说没东西翻"的死按钮。
-        searchable = room["type"] in ("loot", "combat", "empty", "grave", "event", "special")
+        # 灾害房不开放搜刮：没东西可搜，且每点一次都在烧倒计时。
+        # 巢穴清空后可以搜（地上有尸体掉落），未清时战场混乱不给搜。
+        searchable = room["type"] in ("loot", "combat", "empty", "grave", "event", "special") or (
+            room["type"] == "nest" and room.get("cleared")
+        )
         if searchable and not r.get("searched") and level_rules.can_search(self.cfg, st)[0]:
             acts.append({"id": "search", "label": "搜刮这里", "kind": "primary"})
 

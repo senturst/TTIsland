@@ -3,7 +3,10 @@
 import { api } from "./api.js";
 import { state, mutate, applyServerState } from "./state.js";
 import { initTerm, appendLine, playLines, skipTyping, patchLine } from "./term.js";
-import { renderAll, setBusy, flashHorde, setDegraded, pushWorldEvent, renderLeaderboard } from "./render.js";
+import {
+  renderAll, setBusy, flashHorde, setDegraded, pushWorldEvent, renderLeaderboard,
+  armGiveUp, giveUpArmed,
+} from "./render.js";
 
 let host = null;
 let idleTimer = null;
@@ -146,7 +149,9 @@ async function resume() {
 /* ------------------------------------------------------------------ */
 /** 快捷键分发：按命令区按钮顺序 Z/X/C/V 触发前 4 个动作。
  * C 同时保留为「使用物品」备用键：当命令区没有第 3 个按钮时生效。
- * 只在「本局进行中且无可决断」时响应，避免误触。 */
+ * 只在「本局进行中且无可决断」时响应，避免误触。
+ * 「放弃这一局」（give_up）是唯一例外：快捷键只进入确认态，
+ * 必须再用鼠标点一次按钮才真正放弃——V 键连按永远不会误杀当局。 */
 function dispatchHotkey(rawKey) {
   const k = rawKey.toLowerCase();
   if (state.busy) return;
@@ -158,6 +163,13 @@ function dispatchHotkey(rawKey) {
   const acts = state.actions || [];
   const a = acts[idx];
   if (a) {
+    if (a.id === "give_up") {
+      if (!giveUpArmed) {
+        armGiveUp(true);
+        renderAll(handleAction);  // 立即重绘，让按钮显示确认态文案
+      }
+      return;  // 已处于确认态时按 V：什么都不做（不解除也不执行）
+    }
     send(a.id, { index: a.index, to: a.to, choice: a.choice, item: a.item });
     return;
   }

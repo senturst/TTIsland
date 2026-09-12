@@ -117,6 +117,82 @@ templates:
       level_max: 5
       vibe: 一个裹着破毯子的身影在翻拣货物，看见你眼睛亮了一下——「废铁换命，懂？」
 
+  # ============================================================================
+  # 灾害房（P6.2.2）：进房立刻吃一发「开场伤害」，之后玩家有 countdown 个行动窗口。
+  # 每个行动（搜刮/翻找/移动…）都会推进倒计时——归零时触发 worsening（恶化）。
+  # choices 走事件同款加权 outcomes 语法（p 之和 1.0，加载时校验）。
+  #   grab/dig —— 赌一把拿高价值物资（quality 加成），可能挨罚
+  #   press_on —— 不贪，安全通过（无奖励无惩罚）
+  # ============================================================================
+  hazard:
+    - id: gas_leak
+      name: 毒气渗漏
+      level_min: 1
+      level_max: 5
+      countdown: 3
+      onset: {infection: [1, 3]}
+      worsening: {infection: [2, 5]}
+      vibe: 黄绿色的雾从通风管里渗出来，贴着地面慢慢漫开
+      choices:
+        - id: grab
+          label: 憋气冲进雾里翻找
+          noise: 1
+          outcomes:
+            - {p: 0.55, loot_category: medical, quality: 1, text: 你在雾最浓的货架后摸到了还封着的医疗物资。}
+            - {p: 0.25, loot_category: material, quality: 1, text: 工具柜里有几样好东西，你抓起来就跑。}
+            - {p: 0.20, infection: [2, 4], text: 一口没忍住，你吸进了满满一肺的腐甜空气。}
+        - id: press_on
+          label: 屏住呼吸快步通过
+          outcomes:
+            - {p: 1.0, text: 你用袖子捂住口鼻，贴着雾的边缘快步穿了过去。}
+
+    - id: collapsing_floor
+      name: 坍塌现场
+      level_min: 2
+      level_max: 5
+      countdown: 3
+      onset: {cut: [1, 3]}
+      worsening: {cut: [2, 5], noise: 2}
+      vibe: 天花板塌了一半，断梁和碎块悬在头顶摇摇欲坠
+      choices:
+        - id: dig
+          label: 在瓦砾里刨一刨
+          noise: 1
+          outcomes:
+            - {p: 0.45, loot_category: material, quality: 1, text: 塌掉的储物间里压着几箱没烂的东西。}
+            - {p: 0.20, loot_category: ammo, quality: 1, text: 你从瓦砾下拖出一个弹药盒。}
+            - {p: 0.35, cut: [2, 5], text: 你拉动的那根断梁带动了整片碎块。}
+        - id: press_on
+          label: 贴墙小心绕过
+          outcomes:
+            - {p: 1.0, text: 你听着头顶的呻吟声，一点一点挪了过去。}
+
+  # ============================================================================
+  # 变异巢穴（P6.2.2）：进房必遇敌（enemy_bonus 额外加怪），清巢后自动「割巢」
+  # 拿高价值掉落（harvest_tables / harvest_quality / harvest_rolls）。
+  # 只进分支权重——绕路有风险也有收益；主线不刷。
+  # ============================================================================
+  nest:
+    - id: fleshy_nest
+      name: 变异巢穴
+      level_min: 1
+      level_max: 3
+      enemy_bonus: 2
+      harvest_tables: [material, medical]
+      harvest_rolls: 2
+      harvest_quality: 1
+      vibe: 墙上覆着一层搏动的肉质组织，中间是一窝扭曲的卵
+    - id: brood_chamber
+      name: 孵育腔
+      level_min: 4
+      level_max: 5
+      enemy_bonus: 3
+      harvest_tables: [ammo, medical]
+      harvest_rolls: 2
+      harvest_quality: 2
+      harvest_cash: [3, 8]
+      vibe: 整个房间被变异组织吞没，中央的卵囊还在缓缓开合
+
   special:
     - id: stairs_down
       name: 下行通道
@@ -136,6 +212,11 @@ templates:
       kind: npc
       hostile_if_infection_ge: 75
       trade: true
+      # 只收废料（拾荒者不认纸币）；scrap_rate = 物品 value × 该系数 = 废料价
+      scrap_rate: 0.6
+      share_humanity: 5      # 分食物的人道收益
+      buy_humanity: 1        # 每次购买的人道收益
+      gift_chance: 0.4       # 分享后回赠的概率
       vibe: 有活人的气息，对方也在打量你
 
 # 锁门躲避尸潮（第 4 层商场机制）
@@ -144,5 +225,5 @@ lockable_room:
   name: 卷帘门仓库
   levels: [4]
   duration: 3          # 躲避回合数
-  pry_cost: 5          # 消耗撬棍耐久
+  pry_cost: 1          # 消耗撬棍耐久
   noise_reduction: 4

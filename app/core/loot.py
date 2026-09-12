@@ -10,6 +10,7 @@ from typing import Any
 
 from ..data.loader import GameConfig
 from .rng import RNG
+from . import talents
 
 STACKABLE = {"consumable", "ammo", "material", "trinket"}
 
@@ -105,15 +106,17 @@ def remove(state: dict, item_id: str, qty: int = 1) -> bool:
         state["cash"] = have - int(qty)
         _purge_legacy_inv(state)
         return True
-    for i, e in enumerate(state["inventory"]):
-        if e["id"] != item_id:
+    remaining = int(qty)
+    for e in list(state["inventory"]):
+        if e["id"] != item_id or remaining <= 0:
             continue
-        if e["qty"] <= qty:
-            state["inventory"].pop(i)
+        if e["qty"] <= remaining:
+            remaining -= e["qty"]
+            state["inventory"].remove(e)
         else:
-            e["qty"] -= qty
-        return True
-    return False
+            e["qty"] -= remaining
+            remaining = 0
+    return remaining <= 0
 
 
 def count(state: dict, item_id: str) -> int:
@@ -151,6 +154,10 @@ def roll_loot(
         item_id = roll_from_category(cfg, rng, category, quality_bonus)
         if cfg.item_kind(item_id) == "ammo":
             qty = ammo_qty(cfg, rng, item_id)
+            # 弹药猎手：拾取数量乘数（P7 天赋池）
+            mult = float(talents.mod(state, "ammo_scav_mult", 1.0))
+            if mult != 1.0:
+                qty = max(1, int(round(qty * mult)))
         else:
             qty = 1
         out.append((item_id, qty))

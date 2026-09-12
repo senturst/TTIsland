@@ -118,6 +118,13 @@ def generate_level(cfg: GameConfig, rng: RNG, level: int) -> dict[str, Any]:
     branch_weights = dict(mg["room_weights"]["branch"])
     main_weights.pop("special", None)
     branch_weights.pop("special", None)
+    # 撤离层节奏特殊（倒计时压着、固定 8 房）：不刷灾害房/巢穴——
+    # 强制遭遇的巢穴会把玩家血量打穿，让「硬杀 Boss」路径系统性失效。
+    if level == cfg.max_level:
+        branch_weights.pop("hazard", None)
+        branch_weights.pop("nest", None)
+        main_weights.pop("hazard", None)
+        main_weights.pop("nest", None)
 
     # 楼梯固定在主干末端
     stairs_idx = main_len - 1
@@ -141,6 +148,27 @@ def generate_level(cfg: GameConfig, rng: RNG, level: int) -> dict[str, Any]:
             r["name"] = cf["name"]
             r["vibe"] = cf.get("vibe", "")
             r["special_kind"] = "campfire"
+
+    # 幸存者 NPC（P6.2.2）：按概率把一个**非入口、非楼梯、非篝火**的主干房
+    # 替换成活人。每层至多 1 个；第 1 层不放（新手刚下井就撞见活人太挤），
+    # 撤离层不放（倒计时压着，节奏特殊）。
+    npc_cfg = mg.get("survivor_npc", {}) or {}
+    min_level = int(npc_cfg.get("min_level", 2))
+    npc_idx = None
+    if min_level <= level < cfg.max_level and rng.chance(float(npc_cfg.get("spawn_chance", 0))):
+        cand = [
+            i for i in range(1, main_len - 1)
+            if rooms[i]["type"] == "empty"
+        ]
+        if cand:
+            npc_idx = rng.choice(cand)
+            npc = cfg.room_template("special", "survivor_npc")
+            r = rooms[npc_idx]
+            r["type"] = "special"
+            r["tpl"] = npc["id"]
+            r["name"] = npc["name"]
+            r["vibe"] = npc.get("vibe", "")
+            r["special_kind"] = "npc"
 
     # 其余房间按权重分配
     for r in rooms:
@@ -196,6 +224,7 @@ def generate_level(cfg: GameConfig, rng: RNG, level: int) -> dict[str, Any]:
         "current": 0,
         "stairs": stairs_idx,
         "campfire": campfire_idx,
+        "npc": npc_idx,
         "main_len": main_len,
         "total": len(rooms),
     }

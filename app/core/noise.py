@@ -63,6 +63,19 @@ def check_horde(cfg: GameConfig, state: dict) -> bool:
     return False
 
 
+def cut_after_wave_clear(cfg: GameConfig, state: dict) -> float:
+    """消灭一波尸潮后的噪音削减（clear_noise_cut）。返回实际削减后的值。
+
+    同时平息尸潮——把追兵打退，潮水就算退了。
+    """
+    ncfg = cfg.balance["noise"]["horde"]
+    state["horde"] = False
+    cut = float(ncfg.get("clear_noise_cut", 0))
+    if cut > 0:
+        state["noise"] = max(0.0, value(state) * (1.0 - cut))
+    return value(state)
+
+
 def bar(value_: float, max_: int = 10) -> str:
     """HUD 用的 ASCII 条。"""
     filled = int(round(value_ / max_ * 10))

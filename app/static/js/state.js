@@ -99,6 +99,7 @@ export function applyServerState(data) {
       scrap: st.scrap ?? s.scrap,
       inventory: st.inventory ?? s.inventory,
       merchant: st.merchant ?? s.merchant,
+      npc: st.room?.npc ?? s.npc,
       repairOptions: st.repair_options ?? s.repairOptions,
       repairRates: st.repair_rates ?? s.repairRates,
       room: st.room ?? s.room,

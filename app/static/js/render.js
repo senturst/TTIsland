@@ -8,6 +8,7 @@ const ACTION_ICONS = {
   evac: "🚁", use: "🧪", equip: "🎽", campfire: "🔥", move: "➜",
   status: "📊", give_up: "🏳️", lure: "📢", talent: "🧬", legacy: "🎁",
   zombify: "☣️", end: "🕯️", merchant: "🛒", discard: "🗑️",
+  hazard: "☢️", npc: "🧍", repair: "🔧",
 };
 
 const HUD_ICONS = {
@@ -30,6 +31,32 @@ function hotIcon(name) {
 const HOTKEYS = ["Z", "X", "C", "V"];
 function hotkeyForAction(index) {
   return HOTKEYS[index] || null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 「放弃这一局」防误触状态（模块级，跨重渲染保留）。
+ * giveUpArmed=true 表示已按过一次（V 或点击），等待第二次点击确认。
+ * armGiveUp(false) 由超时/取消路径调用，解除确认态。 */
+export let giveUpArmed = false;
+let giveUpTimer = null;
+
+export function armGiveUp(on) {
+  giveUpArmed = !!on;
+  clearTimeout(giveUpTimer);
+  if (giveUpArmed) {
+    giveUpTimer = setTimeout(() => {
+      giveUpArmed = false;
+      renderCommandsLocal();  // 超时解除：把按钮文案恢复成「放弃这一局」
+    }, 3000);
+  }
+}
+
+/** renderAll 传入的 onAction 闭包，供确认态就地重绘时复用。 */
+let lastOnAction = null;
+
+/** 就地重绘命令区（仅 give_up 确认态切换用）。armGiveUp 定义在后面，前置声明。 */
+function renderCommandsLocal() {
+  if (lastOnAction) renderCommands(lastOnAction);
 }
 
 /** ASCII 进度条。文字游戏用字符画血条，零依赖且契合终端质感。 */
@@ -406,7 +433,14 @@ export function renderCommands(onAction) {
     ic.textContent = ACTION_ICONS[a.id] || "•";
 
     const label = document.createElement("span");
-    label.textContent = " " + a.label;
+    // 确认态恢复：重渲染后按钮是新的，但「放弃这一局」的确认意图应保留——
+    // 否则玩家第一次按了 V（进确认态）后任何响应回来，按钮刷新确认就丢了
+    if (a.id === "give_up" && giveUpArmed) {
+      label.textContent = " 确认放弃？（再点一次）";
+      btn.classList.add("btn-confirm-giveup");
+    } else {
+      label.textContent = " " + a.label;
+    }
 
     btn.append(ic, label);
 
@@ -418,7 +452,22 @@ export function renderCommands(onAction) {
       btn.appendChild(k);
     }
 
-    btn.addEventListener("click", () => onAction(a));
+    // 放弃当局：防误触。第一次点击只进入确认态（3 秒超时自动解除），
+    // 第二次点击才真正执行。快捷键（V）只负责进入确认态——
+    // 真正的放弃必须用鼠标点第二下，键盘连按永远不会误杀当局。
+    if (a.id === "give_up") {
+      btn.addEventListener("click", () => {
+        if (!giveUpArmed) {
+          armGiveUp(true);
+          renderCommandsLocal();  // 立即重绘确认态文案，不发请求
+          return;
+        }
+        armGiveUp(false);
+        onAction(a);
+      });
+    } else {
+      btn.addEventListener("click", () => onAction(a));
+    }
     box.appendChild(btn);
   });
 }
@@ -585,20 +634,78 @@ export function renderMerchant(onAction) {
 }
 
 /* ------------------------------------------------------------------ */
+/** 幸存者面板（P6.2.2）：废料换物。分享/离开走命令区按钮，这里只放货架。 */
+export function renderNpc(onAction) {
+  const box = document.getElementById("npc");
+  if (!box) return;
+
+  const npc = state.npc;
+  const inRoom = state.room?.type === "special" && !!npc && !state.room?.resolved;
+  show("npc", !!npc && inRoom);
+  if (!npc || !inRoom) return;
+
+  const leaveBtn = document.getElementById("npc-leave");
+  if (leaveBtn) {
+    leaveBtn.disabled = state.busy;
+    leaveBtn.onclick = () => onAction({ id: "npc", choice: "leave" });
+  }
+
+  const stockBox = document.getElementById("npc-stock");
+  if (!stockBox) return;
+  stockBox.innerHTML = "";
+  const scrap = state.scrap ?? 0;
+
+  if (!npc.stock.length) {
+    stockBox.innerHTML = `<span class="pack-empty">他没什么可换的</span>`;
+    return;
+  }
+  for (const s of npc.stock) {
+    const card = document.createElement("div");
+    card.className = "mch-card";
+    const soldOut = !!s.sold;
+    card.innerHTML =
+      `<span class="mch-name">${iconFor(s.id) || "📦"} ${s.name}</span>` +
+      `<span class="mch-desc">${s.desc || ""}</span>` +
+      `<span class="mch-cost">🧱 ${s.cost}</span>`;
+    const b = document.createElement("button");
+    b.type = "button";
+    if (soldOut) {
+      b.className = "btn btn-ghost mch-btn";
+      b.textContent = "已换出";
+      b.disabled = true;
+    } else {
+      b.className = "btn btn-primary mch-btn";
+      b.textContent = "用废料换";
+      b.disabled = scrap < s.cost || state.busy;
+      b.title = scrap < s.cost ? "废料不够" : "";
+      b.addEventListener("click", () => onAction({ id: "npc", choice: "buy", item: s.id }));
+    }
+    card.appendChild(b);
+    stockBox.appendChild(card);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 export function renderAll(onAction) {
+  lastOnAction = onAction;
   renderHUD();
   renderEnemies();
   renderPack(onAction);
   renderMerchant(onAction);
+  renderNpc(onAction);
   renderCommands(onAction);
 }
 
 export function setBusy(busy) {
   state.busy = busy;
-  // 必须同时覆盖命令区与商人面板：consume() 在 setBusy(false) 之前调用 renderAll()，
-  // 商人按钮此时以 busy=true 渲染成 disabled，若这里只恢复 #cmd-buttons，
-  // 商人的买/卖/修按钮会永远卡在灰色。
-  const buttons = document.querySelectorAll("#cmd-buttons .btn, #merchant .mch-btn");
+  // 必须同时覆盖命令区与商人/幸存者面板：consume() 在 setBusy(false) 之前调用 renderAll()，
+  // 面板按钮此时以 busy=true 渲染成 disabled，若这里只恢复 #cmd-buttons，
+  // 买/换按钮会永远卡在灰色。
+  // 随身面板的丢弃/修理小按钮同理：renderPack 在 busy=true 时渲染，
+  // 漏恢复会让丢弃按钮永远点不了（玩家看起来就是"按钮被挡住了"）。
+  const buttons = document.querySelectorAll(
+    "#cmd-buttons .btn, #merchant .mch-btn, #npc .mch-btn, .pack-item .pack-drop, .pack-item .pack-fix"
+  );
   buttons.forEach((b) => { b.disabled = busy; });
 }
 

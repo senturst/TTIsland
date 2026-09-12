@@ -117,6 +117,22 @@
     </div>
   </section>
 
+  <!-- ============ 幸存者面板（P6.2.2）============
+       废料换物集中在这里，复用商人面板的样式类。分享/离开走命令区。 -->
+  <section class="merchant hidden" id="npc" data-page-node-id="NpCp4ne1">
+    <div class="merchant-head" data-page-node-id="npc-head">
+      <span class="merchant-title" id="npc-title" data-page-node-id="npc-title">幸存者</span>
+      <span class="merchant-note" id="npc-note" data-page-node-id="npc-note">他只收废料——拾荒者不认纸币</span>
+      <button class="btn btn-ghost merchant-leave" id="npc-leave" type="button">离开</button>
+    </div>
+    <div class="merchant-cols" data-page-node-id="npc-cols">
+      <div class="merchant-col" data-page-node-id="npc-shop-col">
+        <div class="merchant-col-title" data-page-node-id="npc-shop-t">他愿意换的东西</div>
+        <div class="merchant-shop" id="npc-stock" data-page-node-id="npc-stock-l"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============ 命令区 ============ -->
   <footer class="cmd" id="cmd" data-page-node-id="Bf1oywMCiGQdO5dTj6cx6q">
     <div class="cmd-buttons" id="cmd-buttons" data-page-node-id="CgNPExIjvwp3lm6vPolput"></div>

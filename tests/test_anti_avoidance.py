@@ -1,0 +1,247 @@
+"""回归测试：避战流削弱（P6.2.5）。
+
+背景（用户需求）：避战流太强——全程绕着战斗走也能过关。
+  1. 每层楼梯口（1-4 层）必刷守门精英，必须消灭才能下楼，不可逃跑
+  2. 消灭一波尸潮后噪音下降 clear_noise_cut（默认 30%，可配置）
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+os.environ.setdefault("LLM_ENABLED", "false")
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from app.core import loot, noise  # noqa: E402
+from app.data.loader import get_config  # noqa: E402
+from app.services.run_service import RunEngine  # noqa: E402
+
+import app.core.combat as C  # noqa: E402
+
+
+async def _new_run(cfg):
+    eng = await RunEngine.new_run(cfg, None)
+    if eng.state.get("pending_decision") == "talent":
+        await eng.act("talent", {"index": 0})
+    return eng
+
+
+# ---------------------------------------------------------------------------
+# 1. 守门精英
+# ---------------------------------------------------------------------------
+
+def test_gatekeeper_config_exists():
+    """配置链完整：elite.monster 指向存在的怪物，且带 elite 标记。"""
+    cfg = get_config()
+    ecfg = cfg.balance["noise"]["horde"].get("elite") or {}
+    mid = ecfg.get("monster")
+    assert mid, "noise.horde.elite.monster 未配置"
+    m = cfg.monster(mid)
+    assert m.get("elite"), f"{mid} 缺少 elite: true 标记"
+    assert ecfg.get("no_flee"), "no_flee 未配置（守门精英必须不可逃）"
+
+
+def test_stairs_spawns_elite():
+    """非 skip 层进楼梯房必刷守门精英；skip 层刷普通怪；cleared 重进不重复刷。"""
+    cfg = get_config()
+    ecfg = cfg.balance["noise"]["horde"]["elite"]
+    skip = ecfg.get("skip_levels") or []
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        room = {"cleared": False}
+        # 用 skip 之外的层验证精英（第 2 层）
+        eng.state["depth"] = next(l for l in range(2, cfg.max_level + 1) if l not in skip)
+        eng._enter_stairs_elite(room)
+        assert st["in_combat"], "进楼梯房应立即进入精英战"
+        assert eng._elite_guard_active(), "战斗中应有活着的守门精英"
+        assert room.get("elite_guard"), "房间应标记 elite_guard"
+        assert any(e.get("elite") for e in st["combat"]["enemies"]), \
+            "敌人应带 elite 标记"
+        assert any("守门" in l or "堵" in l for l in st["log"]), \
+            "应有精英登场提示"
+
+        # cleared 房重进不重复刷
+        st["in_combat"] = False
+        eng._enter_stairs_elite({"cleared": True})
+        assert not st["in_combat"], "已清过的楼梯房不应重复刷精英"
+
+    asyncio.run(run())
+
+
+def test_skip_level_gets_normal_monster():
+    """skip_levels 层（如新手第 1 层）刷普通怪：有威慑但可逃跑。"""
+    cfg = get_config()
+    ecfg = cfg.balance["noise"]["horde"]["elite"]
+    skip = ecfg.get("skip_levels") or []
+    if not skip:
+        return
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        eng.state["depth"] = skip[0]
+        eng._enter_stairs_elite({"cleared": False})
+        assert st["in_combat"], "skip 层楼梯房应有普通战斗"
+        assert not any(e.get("elite") for e in st["combat"]["enemies"]), \
+            "skip 层不应出现精英标记"
+        # 普通怪可逃跑（try_flee 正常走）
+        st["stamina"] = 20
+        st["hp"] = 40
+        old = C.try_flee
+        C.try_flee = lambda *a, **k: True
+        try:
+            await eng._act_flee({})
+        finally:
+            C.try_flee = old
+        assert not st["in_combat"], "skip 层楼梯房普通怪应可逃跑"
+
+    asyncio.run(run())
+
+
+def test_elite_cannot_be_fled():
+    """守门精英不可逃跑：逃跑动作被拒绝且战斗继续。"""
+    cfg = get_config()
+    ecfg = cfg.balance["noise"]["horde"]["elite"]
+    skip = ecfg.get("skip_levels") or []
+
+    async def run():
+        eng = await _new_run(cfg)
+        # 用 skip 之外的层（第 2 层起）确保面对的是真精英
+        eng.state["depth"] = next(l for l in range(2, cfg.max_level + 1) if l not in skip)
+        eng._enter_stairs_elite({"cleared": False})
+        st = eng.state
+        stam_before = st["stamina"]
+
+        await eng._act_flee({})
+
+        assert st["in_combat"], "对守门精英逃跑应被拒绝"
+        assert st["stamina"] == stam_before, "被拒绝的逃跑不应扣体力"
+        assert any("没地方可退" in l or "堵" in l for l in st["log"])
+
+    asyncio.run(run())
+
+
+def test_elite_must_die_before_descend():
+    """精英存活时没有下楼按钮；击杀后 descend 恢复。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        # 把玩家放到楼梯房（current_room 读 level_map["current"]，两者都要设）
+        stairs_idx = next(
+            i for i, r in enumerate(st["level_map"]["rooms"])
+            if r.get("special_kind") == "stairs"
+        )
+        st["level_map"]["current"] = stairs_idx
+        st["room"] = {"idx": stairs_idx, "type": "special", "tpl": None,
+                      "name": "楼梯", "kind": "special", "cleared": False,
+                      "searched": False}
+        st["combat"] = {"enemies": [C.make_enemy(cfg, "gatekeeper", 1)], "round": 0}
+        st["in_combat"] = True
+
+        # 精英活着：无 descend 按钮
+        acts = eng._available_actions()
+        assert not any(a["id"] == "descend" for a in acts), \
+            "守门精英活着不应出现下楼按钮"
+        assert any(a["id"] == "attack" for a in acts), "应有攻击选项"
+
+        # 击杀：descend 恢复
+        st["in_combat"] = False
+        st["combat"]["enemies"][0]["hp"] = 0
+        acts = eng._available_actions()
+        assert any(a["id"] == "descend" for a in acts), "精英死后应恢复下楼按钮"
+
+    asyncio.run(run())
+
+
+def test_normal_flee_still_works():
+    """普通战斗的逃跑不受影响（封锁只针对守门精英）。"""
+    cfg = get_config()
+    import app.core.combat as CC
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["in_combat"] = True
+        st["combat"] = {"enemies": [C.make_enemy(cfg, "walker", 1)]}
+        st["stamina"] = 20
+        st["hp"] = 40
+
+        old = CC.try_flee
+        CC.try_flee = lambda *a, **k: True
+        try:
+            await eng._act_flee({})
+        finally:
+            CC.try_flee = old
+
+        assert not st["in_combat"], "普通敌人仍应可正常逃跑"
+
+    asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# 2. 尸潮清波噪音削减
+# ---------------------------------------------------------------------------
+
+def test_wave_clear_cuts_noise():
+    """消灭一波尸潮：噪音 ×(1−clear_noise_cut) 且尸潮平息。"""
+    cfg = get_config()
+    cut = float(cfg.balance["noise"]["horde"]["clear_noise_cut"])
+    assert 0 < cut < 1, f"clear_noise_cut 应在 (0,1) 区间，实际 {cut}"
+
+    st = {"noise": 9.0, "horde": True}
+    noise.cut_after_wave_clear(cfg, st)
+    assert st["horde"] is False, "清波应平息尸潮"
+    assert abs(st["noise"] - 9.0 * (1 - cut)) < 1e-9, (
+        f"噪音应削减 {cut*100}%，实际 {st['noise']}"
+    )
+    assert st["noise"] > 0, "削减后不应归零（要有残余威胁）"
+
+
+def test_wave_clear_only_when_horde_active():
+    """非尸潮期间清场不应触发削减，也不应误平息。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["in_combat"] = True
+        st["combat"] = {"enemies": [C.make_enemy(cfg, "walker", 1)], "round": 0}
+        st["noise"] = 5.0
+        st["horde"] = False
+        st["weapon"] = {"id": "crowbar"}
+        st["combat"]["enemies"][0]["hp"] = 1
+        eng._acquire = lambda *a, **k: None  # 屏蔽掉落噪音污染
+
+        await eng._act_attack({})
+
+        assert st["noise"] == 5.0, "非尸潮清场不应动噪音"
+        assert not any("潮水" in l for l in st["log"]), "不应有尸潮平息提示"
+
+    asyncio.run(run())
+
+
+if __name__ == "__main__":
+    test_gatekeeper_config_exists()
+    print("✓ 守门者配置完整")
+    test_stairs_spawns_elite()
+    print("✓ 楼梯必刷精英")
+    test_skip_level_gets_normal_monster()
+    print("✓ skip 层刷普通怪")
+    test_elite_cannot_be_fled()
+    print("✓ 精英不可逃跑")
+    test_elite_must_die_before_descend()
+    print("✓ 精英必须消灭才能下楼")
+    test_normal_flee_still_works()
+    print("✓ 普通逃跑不受影响")
+    test_wave_clear_cuts_noise()
+    print("✓ 清波削减噪音")
+    test_wave_clear_only_when_horde_active()
+    print("✓ 非尸潮清场不削减")
+    print("\n避战流削弱回归测试全部通过")

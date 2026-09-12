@@ -218,10 +218,13 @@ class GameConfig:
             if lv not in self.levels:
                 errs.append(f"level_themes 缺少第 {lv} 层")
 
-        # 4. 尸潮怪物必须存在
+        # 4. 尸潮怪物必须存在；守门精英怪物必须存在（若配置了）
         horde_m = self.monsters_cfg["horde"]["monster"]
         if horde_m not in self.monsters:
             errs.append(f"horde.monster 引用不存在的怪物: {horde_m}")
+        elite_m = (self.balance.get("noise", {}).get("horde", {}).get("elite") or {}).get("monster")
+        if elite_m and elite_m not in self.monsters:
+            errs.append(f"noise.horde.elite.monster 引用不存在的怪物: {elite_m}")
 
         # 5. Boss 必须存在
         boss_id = self.levels_cfg["boss"]["id"]
@@ -273,6 +276,38 @@ class GameConfig:
                         continue  # 武器走独立掉落逻辑
                     errs.append(f"房间模板 {tpl['id']} 引用不存在的掉落类别: {t}")
 
+        # 7b. 灾害房（P6.2.2）：倒计时有效、choices 概率闭合、掉落类别合法
+        for tpl in self.room_templates.get("hazard") or []:
+            if int(tpl.get("countdown", 0)) <= 0:
+                errs.append(f"灾害房 {tpl['id']} 的 countdown 必须 > 0")
+            for eff in (tpl.get("onset"), tpl.get("worsening")):
+                for k in (eff or {}):
+                    if k not in ("infection", "cut", "noise", "heal"):
+                        errs.append(f"灾害房 {tpl['id']} 的效果键不合法: {k}")
+            for ch in tpl.get("choices") or []:
+                total = sum(o["p"] for o in ch["outcomes"])
+                if abs(total - 1.0) > 1e-6:
+                    errs.append(
+                        f"灾害房 {tpl['id']}/{ch['id']} 结果概率之和为 {total:.3f}，应为 1.0"
+                    )
+                for o in ch["outcomes"]:
+                    lc = o.get("loot_category")
+                    if lc and lc not in tables:
+                        errs.append(f"灾害房 {tpl['id']} 引用不存在的掉落类别: {lc}")
+
+        # 7c. 变异巢穴（P6.2.2）：收获掉落类别合法
+        for tpl in self.room_templates.get("nest") or []:
+            if int(tpl.get("enemy_bonus", 0)) < 1:
+                errs.append(f"巢穴 {tpl['id']} 的 enemy_bonus 必须 ≥ 1（进房必遇敌）")
+            for t in tpl.get("harvest_tables") or []:
+                if t not in tables:
+                    errs.append(f"巢穴 {tpl['id']} 引用不存在的收获掉落类别: {t}")
+
+        # 7d. 幸存者 NPC（P6.2.2）：铺货池引用的物品必须存在
+        for tpl in self.room_templates.get("special") or []:
+            if tpl.get("kind") == "npc":
+                pass  # NPC 铺货走 merchant.other_pool，已在 2b 校验过物品存在性
+
         # 8. 感染区间必须递增且有 100 的尸化档
         bands = self.balance["infection"]["bands"]
         mins = [b["min"] for b in bands]
@@ -281,12 +316,27 @@ class GameConfig:
         if mins[-1] != 100:
             errs.append("infection.bands 最后一档 min 必须为 100（尸化）")
 
-        # 9. 噪音来源键要能被引用
+        # 9. 噪音来源键要能被引用；远程武器的弹药与 burst 字段必须合法
         noise_keys = set(self.balance["noise"]["sources"])
         for w in self.items_cfg["weapons"]:
             nk = w.get("noise_key")
             if nk and nk not in noise_keys:
                 errs.append(f"武器 {w['id']} 的 noise_key 不存在: {nk}")
+            if w.get("kind") == "ranged":
+                at = w.get("ammo_type")
+                if not at or at not in self.items:
+                    errs.append(f"远程武器 {w['id']} 的 ammo_type 不存在: {at}")
+                elif self.item_kind(at) != "ammo":
+                    errs.append(f"远程武器 {w['id']} 的 ammo_type 不是弹药: {at}")
+            if w.get("burst"):
+                b = w["burst"]
+                if (
+                    not isinstance(b, (list, tuple)) or len(b) != 2
+                    or int(b[0]) < 1 or int(b[1]) < int(b[0])
+                ):
+                    errs.append(
+                        f"武器 {w['id']} 的 burst 应为 [min, max] 且 1 ≤ min ≤ max: {b}"
+                    )
 
         # 10. 天赋池：ID 唯一、开局物资引用合法
         seen_talent: set[str] = set()
@@ -299,6 +349,33 @@ class GameConfig:
             for iid, _qty in (t.get("mods") or {}).get("start_items") or []:
                 if iid not in self.items:
                     errs.append(f"天赋 {t['id']} 引用不存在的物品: {iid}")
+
+        # 10b. 天赋 mods 键合法性：拼错一个键，天赋就会静默失效——
+        # 这类 bug 比崩溃难查得多（历史上 make_enemy 漏透传 xp 字段，
+        # 升级系统整体不触发且没有任何报错）。白名单与代码消费点一一对应，
+        # 新增 mods 键时必须先在消费方落地，再往这里加。
+        KNOWN_MODS_KEYS = {
+            # 战斗属性（combat.player_profile）
+            "acc", "eva", "armor", "crit", "agility",
+            "melee_dmg_pct", "ranged_dmg_pct", "low_hp_dmg_pct", "low_hp_threshold",
+            "execute_dmg_pct", "brace_acc_bonus_add",
+            # 资源与背包（run_service / _bag_cap）
+            "hp_max", "stamina_max", "bag_slots", "kill_heal",
+            "descend_heal_add", "flashlight_bonus",
+            # 噪音（noise）
+            "noise_decay_mult", "noise_add_delta", "horde_threshold_delta",
+            # 感染 / 逃跑 / 掉落 / 修理 / 计分
+            "infection_taken_mult", "flee_bonus", "loot_extra_roll_chance",
+            "ammo_scav_mult", "repair_bonus", "trinket_score_mult",
+            # 特殊键：开局物资与弹药（talents.apply / new_run 消费）
+            "start_items", "ammo_start",
+        }
+        for t in self.talents_cfg.get("talents") or []:
+            bad = set((t.get("mods") or {})) - KNOWN_MODS_KEYS
+            if bad:
+                errs.append(
+                    f"天赋 {t['id']} 的 mods 含未知键 {sorted(bad)}——拼错的天赋会静默失效"
+                )
 
         if errs:
             raise ConfigError(

@@ -58,7 +58,7 @@ def test_non_actionable_items_are_still_reported():
             await eng.act("talent", {"index": 0})
 
         # 每种"没有操作按钮"的类别各放一个
-        probe = {"photo": 1, "scrap": 2, "ammo_pistol": 5}
+        probe = {"photo": 1, "scrap": 2, "ammo_t2": 5}
         for iid, qty in probe.items():
             loot.grant(cfg, eng.state, iid, qty)
 
@@ -78,7 +78,7 @@ def test_non_actionable_items_are_still_reported():
         # 计分道具的类别必须正确，否则前端的分类配色会错
         assert inv["photo"]["kind"] == "trinket"
         assert inv["scrap"]["kind"] == "material"
-        assert inv["ammo_pistol"]["kind"] == "ammo"
+        assert inv["ammo_t2"]["kind"] == "ammo"
 
     asyncio.run(run())
 
@@ -125,7 +125,7 @@ def test_items_carry_numeric_desc():
             "leather_jacket": "armor",    # 防御 +2 · 闪避 -5
             "crowbar": "weapon",          # 伤害 6–10 · 暴击 5% · 静音 · 耐久 20
             "wedding_ring": "trinket",    # 计分 +15
-            "ammo_pistol": "ammo",        # 每拾 3–6
+            "ammo_t2": "ammo",        # 每拾 3–6
             "scrap": "material",          # 无数值，desc 应为空串
         }
         for iid in probe:

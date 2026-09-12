@@ -1,17 +1,39 @@
 # ============================================================================
 # 天赋池
 #
-# 触发时机：玩家**复活进场**时三选一（上一局撤离成功则不触发——
-# 通关奖励已经给过满耐久遗物和撤离津贴了，再叠天赋会让"故意去死"变成最优解）。
+# 两个来源（P7 升级系统）：
+#   * 开局（复活进场）三选一：死亡补偿；上一局撤离成功则不触发
+#   * 局内升级三选一：击杀 XP 攒条 / 精英·Boss 直升；排除已拥有的
 #
-# 定位：这是**死亡补偿（pity）**，不是成长系统。
-#   1. 只在本局生效，不累积、不带出
-#   2. 三选一是随机的，玩家拿不到想要的那个是常态
-#   3. 单个天赋对撤离率的提升必须 ≤ +3%（scripts/sim.py --talents 会逐条验证）
-#   4. 但也不能鸡肋——每个天赋都要有玩家**当场就能感觉到**的场景
+# 定位与强度：
+#   * 开局天赋 = 入场补偿；升级天赋 = 本局成长。都只在单局生效，死亡清零
+#   * 多天赋叠加：数值型求和（再拿一次同类的会叠上去）
+#   * 单天赋对撤离率的提升必须 ≤ +3%（scripts/sim.py --talents 逐条验证）
+#   * 池子要够大（30+）：一局最多 5 次抽取 ×3 选项 + 排除已有，不够会重复
 #
-# mods 字段是纯数据，由 core/talents.py 读取，各系统自行消费。
+# mods 字段是纯数据，由 core/talents.py 聚合读取，各系统自行消费。
 # 新增天赋只改这个文件，不用动代码。
+#
+# 可用 mods 键（消费方）：
+#   hp_max            生命上限        combat.player_profile / apply 即时生效
+#   start_items       开局物资        apply 即时生效 [id, 数量]
+#   infection_taken_mult  感染乘数    run_service._add_infection
+#   descend_heal_add  下楼回血加成    _descend
+#   melee_dmg_pct / ranged_dmg_pct    combat.player_profile
+#   crit / acc / eva / armor          combat.player_profile
+#   low_hp_dmg_pct / low_hp_threshold 亡命之徒类
+#   loot_extra_roll_chance            搜索多掷一次
+#   bag_slots / ammo_start / flashlight_bonus
+#   noise_decay_mult / noise_add_delta / horde_threshold_delta   noise 模块
+#   flee_bonus         逃跑加成（/5 折算敏捷）
+#   agility            敏捷
+#   repair_bonus       修理费率折扣
+#   trinket_score_mult 纪念品得分乘数
+#   melee_lifesteal    近战吸血（击杀回血，P7 新增消费点）
+#   ammo_scav_mult     弹药拾取乘数（P7 新增消费点）
+#   stamina_max        体力上限（P7 新增消费点）
+#   brace_acc_bonus_add 瞄准额外命中（P7 新增消费点）
+#   XP
 # ============================================================================
 
 draw_count: 3
@@ -42,6 +64,30 @@ talents:
     desc: 每下一层额外回复 2.5% 生命
     weight: 8
     mods: {descend_heal_add: 0.025}
+
+  - id: second_wind
+    name: 回气
+    desc: 体力上限 +4
+    weight: 8
+    mods: {stamina_max: 4}
+
+  - id: thick_skin
+    name: 厚皮
+    desc: 防御 +1（所有来源的伤害都先扣它）
+    weight: 7
+    mods: {armor: 1}
+
+  - id: adrenaline
+    name: 肾上腺素
+    desc: 击杀敌人后回复 2 点生命（近战/远程都算）
+    weight: 8
+    mods: {kill_heal: 2}
+
+  - id: iron_stomach
+    name: 铁胃
+    desc: 开局携带 2 个罐头，吃 infection 抑制更好
+    weight: 6
+    mods: {start_items: [[canned, 2]]}
 
   # ---------------- 输出 ----------------
   - id: brute_strength
@@ -74,6 +120,30 @@ talents:
     weight: 7
     mods: {low_hp_dmg_pct: 0.15}
 
+  - id: deadeye
+    name: 神射手
+    desc: 命中 +6
+    weight: 8
+    mods: {acc: 6}
+
+  - id: executioner
+    name: 处刑人
+    desc: 暴击伤害更狠——暴击率 +2% 且低血敌人（<30%）受到伤害 +10%
+    weight: 6
+    mods: {crit: 0.02, execute_dmg_pct: 0.10}
+
+  - id: berserker
+    name: 狂战士
+    desc: 近战伤害 +12%，但防御 −1
+    weight: 6
+    mods: {melee_dmg_pct: 0.12, armor: -1}
+
+  - id: gunrunner
+    name: 军械商
+    desc: 枪械伤害 +5%，开局弹药 +4
+    weight: 7
+    mods: {ranged_dmg_pct: 0.05, ammo_start: 4}
+
   # ---------------- 资源 ----------------
   - id: scavenger
     name: 拾荒直觉
@@ -99,6 +169,24 @@ talents:
     weight: 7
     mods: {flashlight_bonus: 35}
 
+  - id: ammo_hound
+    name: 弹药猎手
+    desc: 拾取弹药数量 +25%
+    weight: 7
+    mods: {ammo_scav_mult: 1.25}
+
+  - id: tinkerer
+    name: 修补匠
+    desc: 废料修理效果 +50%（1 废料=4.5 点耐久）
+    weight: 7
+    mods: {repair_bonus: 0.5}
+
+  - id: field_medic
+    name: 战地医护
+    desc: 开局携带 1 个医疗包
+    weight: 6
+    mods: {start_items: [[medkit, 1]]}
+
   # ---------------- 机动 ----------------
   - id: nightwalker
     name: 夜行者
@@ -112,6 +200,31 @@ talents:
     weight: 7
     mods: {noise_add_delta: -1}
 
+  - id: sprinter
+    name: 短跑健将
+    desc: 逃跑成功率 +15%，体力上限 +2
+    weight: 7
+    mods: {flee_bonus: 15, stamina_max: 2}
+
+  - id: ghost
+    name: 如影随形
+    desc: 噪音衰减 +100%，但生命上限 −3
+    weight: 5
+    mods: {noise_decay_mult: 2.0, hp_max: -3}
+
+  # ---------------- 瞄准/技巧 ----------------
+  - id: marksman_training
+    name: 狙击训练
+    desc: 瞄准动作额外命中 +4
+    weight: 6
+    mods: {brace_acc_bonus_add: 4}
+
+  - id: calm_mind
+    name: 静如止水
+    desc: 体力上限 +6
+    weight: 6
+    mods: {stamina_max: 6}
+
   # ---------------- 趣味（弱，但有用）----------------
   - id: collector
     name: 收藏癖
@@ -124,3 +237,9 @@ talents:
     desc: 开局携带伏特加（临时 +10 命中，但 +3 感染）
     weight: 5
     mods: {start_items: [[vodka, 1]]}
+
+  - id: lucky_charm
+    name: 幸运符
+    desc: 搜刮多掷一次概率 +20%，背包容量 +2
+    weight: 6
+    mods: {loot_extra_roll_chance: 0.20, bag_slots: 2}

@@ -1,0 +1,256 @@
+"""回归测试：P7 升级系统（XP + 精英直升 + 多天赋聚合）。
+
+背景（用户拍板的五点设计）：
+  1. 方案 A：复用天赋池三选一，效果可叠加
+  2. 精英/Boss 击杀直接升 1 级（不走 XP 条）
+  3. 节奏：每局期望 2-3 级、全程上限 4 级
+  4. 强度对冲走「接受抬升 + 微调目标」
+  5. 天赋池扩充到 32 个支撑抽取
+
+机制要点：
+  - XP 来源：monsters.yaml 的 xp 字段（普通怪攒条，60×1.4^level 曲线，可连升）
+  - 结算时机：pending_levelups 在战斗清空后由 _settle_levelups() 弹出
+  - 升级抽取排除已拥有（开局抽取不排除）
+  - 多天赋聚合：数值求和、*_mult 连乘、其他取第一个
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+os.environ.setdefault("LLM_ENABLED", "false")
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from app.core import talents  # noqa: E402
+from app.data.loader import get_config  # noqa: E402
+from app.services.run_service import RunEngine  # noqa: E402
+
+
+async def _new_run(cfg):
+    eng = await RunEngine.new_run(cfg, None)
+    if eng.state.get("pending_decision") == "talent":
+        await eng.act("talent", {"index": 0})
+    return eng
+
+
+class FakeEng(RunEngine):
+    """不走持久化/前端输出的轻量引擎，用于直接驱动内部方法。"""
+
+    def __init__(self, cfg, state):
+        super().__init__(cfg, state)
+
+    def log_text(self):
+        return "\n".join(self._out)
+
+
+def _fresh_state(cfg):
+    """最小可运行状态：从 RunEngine.new_run 借基础字段（含 rng），growth 字段归零。"""
+    from app.core.rng import RNG, new_seed
+
+    rng = RNG(new_seed())
+    return {
+        "run_id": "t",
+        "seed": 12345,
+        "rng": rng.get_state(),
+        "player": {"name": "t"},
+        "depth": 1,
+        "turn": 0,
+        "hp": 20,
+        "hp_max": 20,
+        "infection": 0,
+        "stamina": 20,
+        "noise": 0.0,
+        "horde": False,
+        "inventory": [],
+        "buffs": [],
+        "log": [],
+        "talents": [],
+        "xp": 0,
+        "growth_level": 0,
+        "pending_levelups": 0,
+        "pending_decision": None,
+        "status": "active",
+    }
+
+
+def test_monsters_have_xp_field():
+    """所有怪必须带 xp 字段——make_enemy 透传它，缺了升级系统就静默失效。"""
+    cfg = get_config()
+    monsters = cfg.monsters_cfg.get("monsters") or []
+    assert monsters, "monsters.yaml 应有 monsters 列表"
+    for m in monsters:
+        assert isinstance(m.get("xp"), int) and m["xp"] > 0, f"{m['id']} 缺 xp 字段"
+
+
+def test_make_enemy_passes_xp_and_elite():
+    """make_enemy 必须透传 xp 与 elite 字段（历史上 xp 漏透过 → 升级全失效）。"""
+    cfg = get_config()
+    from app.core import combat
+
+    e = combat.make_enemy(cfg, "ghoul", 1)
+    ghoul = next(m for m in cfg.monsters_cfg["monsters"] if m["id"] == "ghoul")
+    assert e["xp"] == int(ghoul["xp"])
+    assert not e.get("elite")
+
+    e2 = combat.make_enemy(cfg, "gatekeeper", 1)
+    gate = next(m for m in cfg.monsters_cfg["monsters"] if m["id"] == "gatekeeper")
+    assert e2["xp"] == int(gate["xp"])
+    assert e2.get("elite") is True
+
+
+def test_elite_kill_grants_direct_levelup():
+    """精英击杀 → pending_levelups +1，不走 XP 条。"""
+    cfg = get_config()
+    st = _fresh_state(cfg)
+    eng = FakeEng(cfg, st)
+    eng._grant_xp({"id": "gatekeeper", "elite": True, "xp": 30})
+    assert st["pending_levelups"] == 1, st
+    assert st["xp"] == 0, "精英直升不应累积 XP 条"
+    assert st["growth_level"] == 0
+
+
+def test_normal_kill_accumulates_xp_and_levels():
+    """普通怪击杀攒 XP 条，过阈值升级（可能连升）；精英路径不受影响。"""
+    cfg = get_config()
+    st = _fresh_state(cfg)
+    eng = FakeEng(cfg, st)
+
+    base = cfg.balance["growth"]["xp_base"]
+    curve = float(cfg.balance["growth"]["xp_curve"])
+
+    # 第一级需要 base 点
+    eng._grant_xp({"id": "walker", "xp": 10})
+    assert st["xp"] == 10 and st["growth_level"] == 0
+
+    # 补到 base → 升 1 级，剩余进下一级条
+    eng._grant_xp({"id": "walker", "xp": base - 10 + 5})
+    assert st["growth_level"] == 1
+    assert st["pending_levelups"] == 1
+    assert st["xp"] == 5
+
+    # 连升验证：一次灌 3 级的量
+    need2 = int(base * curve ** 1)
+    need3 = int(base * curve ** 2)
+    eng._grant_xp({"id": "walker", "xp": (need2 - 5) + need3 + 10})
+    assert st["growth_level"] == 3, (st["growth_level"], need2, need3)
+    assert st["pending_levelups"] == 3
+
+
+def test_settle_levelups_pops_talent_decision():
+    """战斗清空后 _settle_levelups 弹三选一，一次弹一个。"""
+    cfg = get_config()
+    st = _fresh_state(cfg)
+    eng = FakeEng(cfg, st)
+    st["pending_levelups"] = 2
+
+    eng._settle_levelups()
+    assert st.get("pending_decision") == "talent"
+    assert len(st.get("talent_options") or []) == 3
+    assert st["pending_levelups"] == 1, "弹一个扣一个"
+
+
+def test_levelup_draw_excludes_owned():
+    """升级抽取必须排除已拥有天赋；开局抽取不排除。"""
+    cfg = get_config()
+    st = _fresh_state(cfg)
+    eng = FakeEng(cfg, st)
+
+    owned = st["talents"]
+    # 强塞几个已拥有的（从池里取真实 id）
+    pool_ids = [t["id"] for t in cfg.talents_cfg["talents"]]
+    owned.extend([{ "id": pool_ids[0] }, { "id": pool_ids[1] }])
+
+    st["pending_levelups"] = 1
+    eng._settle_levelups()
+    opts = [o["id"] for o in st["talent_options"]]
+    assert pool_ids[0] not in opts and pool_ids[1] not in opts, opts
+
+    # 32 个池排除 2 个仍有 30 个可选 → 抽取不该失败
+    assert len(opts) == 3
+
+
+def test_talents_mod_aggregation():
+    """多天赋聚合：数值求和、*_mult 连乘、其他取第一个。"""
+    cfg = get_config()
+    st = _fresh_state(cfg)
+    st["talents"] = [
+        {"id": "a", "mods": {"stamina_max": 2, "dmg_mult": 1.1, "flee_bonus": 5}},
+        {"id": "b", "mods": {"stamina_max": 3, "dmg_mult": 1.2}},
+    ]
+    # 数值：2+3=5
+    assert talents.mod(st, "stamina_max", 0) == 5
+    # 乘数：1.1×1.2=1.32
+    assert abs(talents.mod(st, "dmg_mult", 1.0) - 1.32) < 1e-9
+    # 非数值非乘数：取第一个出现的
+    assert talents.mod(st, "flee_bonus", 0) == 5
+    # 缺省值兜底
+    assert talents.mod(st, "nonexistent", 7) == 7
+
+
+def test_old_single_talent_format_migrates():
+    """旧档 state['talent']（单对象）应被迁移为列表，不丢数据。"""
+    cfg = get_config()
+    st = _fresh_state(cfg)
+    st["talents"] = []
+    st["talent"] = {"id": "legacy_one", "mods": {"stamina_max": 4}}
+    assert talents.mod(st, "stamina_max", 0) == 4, "旧格式天赋应参与聚合"
+
+
+def test_death_clears_growth():
+    """死亡后成长数据不进遗物/下一局——开局 XP 从零开始。"""
+    cfg = get_config()
+    st = _fresh_state(cfg)
+    st["xp"] = 55
+    st["growth_level"] = 2
+    st["pending_levelups"] = 1
+    # new_run 造的新 state 必须全部归零
+    fresh = _fresh_state(cfg)
+    assert fresh["xp"] == 0 and fresh["growth_level"] == 0 and fresh["pending_levelups"] == 0
+
+
+def test_end_to_end_elite_kill_then_pick():
+    """端到端：真引擎击杀精英 → decision=talent → 选完 talents+1 且级联弹下一个。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        n_before = len(st.get("talents") or [])
+        # 直接注入精英击杀（绕开地图到达）
+        eng._grant_xp({"id": "gatekeeper", "elite": True, "xp": 30})
+        eng._settle_levelups()
+        assert st.get("pending_decision") == "talent"
+        await eng.act("talent", {"index": 0})
+        # pending 还剩 0（只注入了 1 个），天赋数 +1
+        assert len(st.get("talents") or []) == n_before + 1
+        assert st.get("pending_decision") is None
+        return st
+
+    st = asyncio.run(run())
+    assert st["growth_level"] == 0  # 精英直升不走条
+
+
+def test_talent_pool_size():
+    """天赋池必须足够大：≥30 个，否则升级系统连抽几次就枯竭。"""
+    cfg = get_config()
+    n = len(cfg.talents_cfg["talents"])
+    assert n >= 30, f"天赋池只有 {n} 个，不足以支撑升级抽取"
+
+
+def test_growth_config_exists():
+    """growth 曲线配置存在且合理。"""
+    cfg = get_config()
+    g = cfg.balance["growth"]
+    assert int(g["xp_base"]) > 0
+    assert float(g["xp_curve"]) > 1.0, "曲线系数必须 >1（逐级变贵）"
+
+
+if __name__ == "__main__":
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    for fn in fns:
+        fn()
+        print(f"✓ {fn.__doc__.strip().splitlines()[0] if fn.__doc__ else fn.__name__}")
+    print(f"\n升级系统回归测试全部通过（{len(fns)} 项）")

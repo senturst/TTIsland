@@ -65,11 +65,27 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
     hp_ratio = st["hp"] / max(1, st["hp_max"])
 
     if st.get("in_combat"):
-        # 打不过 Boss 就引开它——这是设计好的解法，不是作弊
-        if st.get("boss_alive") and st.get("boss_seen") and hp_ratio < 0.75:
+        # 打不过 Boss 就引开它——这是设计好的解法，不是作弊。
+        # 但 lure 失败一次后（boss_lure_spent）引擎会关闭 Boss 战中的 lure，
+        # 此时只能硬拼或逃跑。
+        if (
+            st.get("boss_alive") and st.get("boss_seen")
+            and hp_ratio < 0.75 and not st.get("boss_lure_spent")
+        ):
             return "lure", {}
-        if hp_ratio < 0.25:
-            return "flee", {}
+        if hp_ratio < 0.25 and not any(
+            e.get("elite") for e in st["combat"]["enemies"] if e["hp"] > 0
+        ):
+            return "flee", {}  # 守门精英不可逃跑，只能硬拼
+        # 精英战（不可逃）：残血先用绷带顶住，别干挨打
+        if hp_ratio < 0.55 and any(
+            e.get("elite") for e in st["combat"]["enemies"] if e["hp"] > 0
+        ):
+            for e in st["inventory"]:
+                if engine.cfg.item_kind(e["id"]) == "consumable" and e["id"] in (
+                    "bandage", "canned", "medkit",
+                ):
+                    return "use", {"item": e["id"]}
         if hp_ratio < 0.45:
             for e in st["inventory"]:
                 if engine.cfg.item_kind(e["id"]) == "consumable" and e["id"] in (
@@ -79,7 +95,11 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
         for a in acts:
             if a["id"] == "shoot":
                 w = engine.cfg.item(st["weapon"]["id"])
-                if loot.count(st, w["ammo_type"]) >= w.get("ammo_per_shot", 1):
+                # burst 武器弹药不足时可部分射击（至少 1 发），单发必须够 ammo_per_shot
+                if w.get("burst"):
+                    if loot.count(st, w["ammo_type"]) >= 1:
+                        return "shoot", {}
+                elif loot.count(st, w["ammo_type"]) >= w.get("ammo_per_shot", 1):
                     return "shoot", {}
         return "attack", {}
 
@@ -113,6 +133,16 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
     for a in acts:
         if a["id"] == "event":
             return "event", {"choice": a["choice"]}
+    # 灾害房（P6.2.2）：血量健康时赌一把翻找，残血时贴边通过——像真实玩家
+    for a in acts:
+        if a["id"] == "hazard":
+            return "hazard", {"choice": a["choice"] if hp_ratio > 0.6 else (
+                "press_on" if a["choice"] == "press_on" else a["choice"]
+            )}
+    # 幸存者（P6.2.2）：模拟器只交换不施舍（施舍策略另测），拿到换购就走
+    for a in acts:
+        if a["id"] == "npc" and a.get("choice") == "leave":
+            return "npc", {"choice": "leave"}
     grave_acts = [a for a in acts if a["id"] == "grave"]
     if grave_acts:
         g = st["room"].get("grave") or {}
