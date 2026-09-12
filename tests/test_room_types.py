@@ -221,26 +221,27 @@ def test_npc_share_food_gives_humanity_and_maybe_gift():
 
     async def run():
         eng = await _new_run(cfg)
+        st = eng.state
+        st["talents"] = []  # 隔离随机天赋（铁胃开局多发 2 罐会抬高基线）
         eng.state["infection"] = 10
         room = _make_room(eng, "special", "survivor_npc")
         room["special_kind"] = "npc"
         eng._enter_npc(room)
-        loot.grant(cfg, eng.state, "canned", 2)
-        hum0 = eng.state["humanity"]
+        loot.grant(cfg, st, "canned", 2)
+        hum0 = st["humanity"]
 
         # 只留罐头一种食物，消除"分给谁"的歧义（开局可能自带绷带）
-        eng.state["inventory"] = [
-            e for e in eng.state["inventory"] if e["id"] == "canned"
-        ]
+        st["inventory"] = [e for e in st["inventory"] if e["id"] == "canned"]
+        before = loot.count(st, "canned")
 
         await eng._act_npc({"choice": "share"})
 
-        assert eng.state["humanity"] == hum0 + 5, "分食物应人道 +5"
-        # 注意：NPC 有 40% 概率回赠 other_pool 随机物品，可能恰好是罐头——
-        # 所以断言不能是"恰好 1 罐"，而是"不超过原有数量"（分掉的那罐可能被塞回来）
-        assert loot.count(eng.state, "canned") <= 2, "罐头不应凭空变多（回赠顶多抵消）"
+        assert st["humanity"] == hum0 + 5, "分食物应人道 +5"
+        # NPC 有 40% 概率回赠 other_pool 随机物品，可能恰好是罐头——
+        # 断言用动态基线：不超过原有数量（分掉的那罐可能被塞回来）
+        assert loot.count(st, "canned") <= before, "罐头不应凭空变多（回赠顶多抵消）"
         assert room.get("resolved"), "分享后交互结束（防双向边刷人道）"
-        assert not eng.state["room"].get("npc")
+        assert not st["room"].get("npc")
 
     asyncio.run(run())
 
