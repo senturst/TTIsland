@@ -124,6 +124,25 @@ weapons:
     value: 28
     desc_ai: true
 
+  # ---- 地区 2 · 军事检疫营地军械（P8） ----
+  - id: assault_rifle
+    name: 突击步枪
+    icon: "🔫"
+    kind: ranged
+    dmg: [7, 11]
+    acc_mod: +10
+    crit: 0.10
+    ammo_type: ammo_t3
+    ammo_per_shot: 1
+    burst: [2, 5]
+    # 军械库的制式装备：单发威力与连射上限都比消音冲锋枪高一档，
+    # 代价是没有消音（gunshot 噪音）且更稀有（weight 更低）
+    noise_key: gunshot
+    weight: 3
+    tier: 3
+    value: 32
+    desc_ai: true
+
   - id: smg
     name: 冲锋枪
     icon: "🔫"
@@ -408,6 +427,19 @@ armor:
     tier: 1
     value: 8
     desc_ai: false
+  # ---- 地区 2 · 军事检疫营地军械（P8） ----
+  - id: military_vest
+    name: 军用防弹服
+    icon: "🦺"
+    armor: 6
+    eva: -12
+    noise_mod: +1
+    pockets: 2
+    durability: 55
+    weight: 4
+    tier: 3
+    value: 30
+    desc_ai: false
 
 trinkets:
   - id: wedding_ring
@@ -458,6 +490,15 @@ backpacks:
     weight: 5
     tier: 2
     value: 18
+    desc_ai: false
+  # ---- 地区 2 · 军事检疫营地军械（P8） ----
+  - id: military_pack
+    name: 军用背囊
+    icon: "🎒"
+    slots: 10
+    weight: 3
+    tier: 3
+    value: 26
     desc_ai: false
 
 # 消耗品不可作为遗物继承；现金是局内货币，同样不继承。

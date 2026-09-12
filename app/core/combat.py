@@ -286,7 +286,8 @@ def spawn_encounter(
 ) -> list[dict[str, Any]]:
     """按层遭遇表生成敌人列表。"""
     if boss:
-        return [make_enemy(cfg, cfg.levels_cfg["boss"]["id"], level)]
+        # P8 地区化：Boss 按层所属地区取（regions.yaml 的 boss 字段）
+        return [make_enemy(cfg, cfg.region_boss(cfg.region_id_for_level(level)), level)]
 
     table = cfg.monsters_cfg["encounter_tables"]["per_level"][level]
     count = rng.rand_range_int(table["count"]) + bonus

@@ -55,6 +55,28 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
             return "grave", {"choice": "take", "uid": choices[0]["uid"]}
         return "grave", {"choice": "skip"}
 
+    if st.get("pending_decision") == "evac_carry":
+        # P8 撤离带装：无脑按分组顺序带前三件（sim 策略不代表人类，
+        # 这里只保证 run 能跨区继续；L6-10 校准暂缓是已知决定）
+        inv = st.get("inventory") or []
+        weapon = next(
+            (e["id"] for e in inv
+             if e["id"] != "crowbar" and engine.cfg.item_kind(e["id"]) == "weapon"),
+            (st.get("weapon") or {}).get("id"),
+        )
+        gear = next(
+            (e["id"] for e in inv
+             if engine.cfg.item_kind(e["id"]) in ("armor", "backpack")),
+            None,
+        )
+        other = next(
+            (e["id"] for e in inv
+             if e["id"] not in (weapon, gear)
+             and engine.cfg.item_kind(e["id"]) not in ("weapon", "armor", "backpack")),
+            None,
+        )
+        return "carry", {"weapon": weapon, "gear": gear, "other": other}
+
     if st.get("pending_decision") == "bag_overflow":
         # 背包超载（先拿后丢 / 换装缩水）：丢到装得下为止（必然有可丢项，否则不会溢出）
         inv = st.get("inventory") or []

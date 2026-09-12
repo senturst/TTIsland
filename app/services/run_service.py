@@ -425,7 +425,8 @@ class RunEngine:
         if not first:
             lines.append("")  # 空行分隔
         self._log_many(lines)
-        st["boss_alive"] = level == self.cfg.max_level
+        # P8 地区化：每个地区的最后一层都是撤离点/地区 Boss 层
+        st["boss_alive"] = level == self.cfg.last_level_of(level)
         st["boss_lured"] = 0
         st["boss_lure_spent"] = False
         await self._enter_room(st["level_map"]["entry"], entering_level=True)
@@ -551,7 +552,7 @@ class RunEngine:
         st = self.state
         kind = room.get("special_kind")
         if kind == "stairs":
-            if st["depth"] == self.cfg.max_level:
+            if st["depth"] == self.cfg.last_level_of(st["depth"]):
                 st["room"]["name"] = self.cfg.levels_cfg["boss"]["room_name"]
                 await self._enter_boss()
             else:
@@ -587,6 +588,10 @@ class RunEngine:
                 self._log(f"楼梯口蹲着一头{enemies[0]['name']}，抬头盯住了你。")
             return
         mid = ecfg.get("monster") or "gatekeeper"
+        # P8 地区精英：monsters 映射按地区覆盖全局默认（地区 2 = 变异军士）
+        rid = self.cfg.region_id_for_level(st["depth"])
+        per_region = ecfg.get("monsters") or {}
+        mid = per_region.get(str(rid)) or per_region.get(rid) or mid
         if mid not in self.cfg.monsters:
             return  # 配置指向不存在的怪物时静默跳过（loader 校验兜底）
         enemies = [combat.make_enemy(self.cfg, mid, st["depth"])]
@@ -1242,8 +1247,128 @@ class RunEngine:
             else:
                 await self._act_discard(payload)
 
+        elif decision == "evac_carry":
+            # P8 撤离带装：选 1 武器 + 1 装备 + 1 其他带进下一地区
+            if action != "carry":
+                self._log("直升机不等人——先挑好三样东西，再跳下去。")
+                return
+            await self._apply_evac_carry(payload)
+
         self.persist_rng()
         return self._response()
+
+    async def _apply_evac_carry(self, payload: dict) -> None:
+        """P8 撤离带装：挑 1 武器 + 1 装备 + 1 其他带进下一地区，其余全部留下。
+
+        payload: {weapon: id|None, gear: id|None, other: id|None}（各槽可空）。
+        - 武器没带 → 发新撬棍（start_weapon）；带远程枪 → 发对口弹药 ×ammo_start，
+          没带远程 → 1 废料（与死亡继承同一口径，用户拍板）
+        - 前端传来的只是界面状态；这里逐一校验 id 归属，不是信任来源
+        - 完成后直接进入下一地区首层（status 始终 active，对局不断）
+        """
+        st = self.state
+        cfg = self.cfg
+
+        def _inv(iid):
+            if not iid:
+                return None
+            return next(
+                (e for e in st["inventory"] if e["id"] == iid and e["qty"] > 0), None
+            )
+
+        # 先快照手持装备（清槽前），带装判定基于快照
+        held_weapon = dict(st["weapon"]) if st.get("weapon") else None
+        held_armor = dict(st["armor"]) if st.get("armor") else None
+        held_pack = dict(st["backpack"]) if st.get("backpack") else None
+
+        # ---- 武器 ----
+        wid = payload.get("weapon") or None
+        weapon_obj = None
+        if wid and held_weapon and held_weapon.get("id") == wid:
+            weapon_obj = held_weapon
+        else:
+            e = _inv(wid)
+            if e and cfg.item_kind(wid) == "weapon":
+                weapon_obj = {
+                    "id": wid,
+                    "durability": e.get("durability"),
+                    "max_durability": e.get("max_durability"),
+                }
+        if weapon_obj is None:
+            sw = cfg.balance["player"]["start_weapon"]
+            weapon_obj = {
+                "id": sw,
+                "durability": int(cfg.item(sw).get("durability") or 0) or None,
+            }
+            self._log(f"你没带武器。舱门边扔着一把制式{cfg.item(sw)['name']}——你捡了起来。")
+        st["weapon"] = weapon_obj
+
+        # ---- 装备（护甲或背包，二选一）----
+        gid = payload.get("gear") or None
+        st["armor"] = None
+        st["backpack"] = None
+        if gid and held_armor and held_armor.get("id") == gid:
+            st["armor"] = held_armor
+        elif gid and held_pack and held_pack.get("id") == gid:
+            st["backpack"] = held_pack
+        elif gid:
+            e = _inv(gid)
+            kind = cfg.item_kind(gid) if e else None
+            if kind == "armor":
+                st["armor"] = {
+                    "id": gid,
+                    "durability": e.get("durability"),
+                    "max_durability": e.get("max_durability"),
+                }
+            elif kind == "backpack":
+                st["backpack"] = {"id": gid, "slots": int(cfg.item(gid).get("slots", 0))}
+            else:
+                gid = None  # 不是装备 → 该槽作废
+
+        # ---- 其他（任意非装备物品，整组带走）----
+        oid = payload.get("other") or None
+        other_entry = None
+        if oid and oid not in (wid, gid):
+            e = _inv(oid)
+            if e and cfg.item_kind(oid) not in ("weapon", "armor", "backpack"):
+                other_entry = dict(e)
+        st["inventory"] = [other_entry] if other_entry else []
+
+        # ---- 弹药/废料（与死亡继承同一口径）----
+        wcfg = cfg.item(st["weapon"]["id"]) if st.get("weapon") else None
+        ammo_start = int(cfg.balance["player"]["ammo_start"])
+        if wcfg and wcfg.get("kind") == "ranged":
+            loot.grant(cfg, st, wcfg["ammo_type"], ammo_start)
+            self._log(
+                f"舱门边码着它的弹药箱：{cfg.item(wcfg['ammo_type'])['name']} ×{ammo_start} 归你了。"
+            )
+        else:
+            loot.grant(cfg, st, "scrap", 1)
+            self._log("你只从舱边摸到一块废料。")
+
+        kept = [st["weapon"].get("id")]
+        if st.get("armor"):
+            kept.append(st["armor"]["id"])
+        if st.get("backpack"):
+            kept.append(st["backpack"]["id"])
+        if other_entry:
+            kept.append(other_entry["id"])
+        self._log(
+            "你把带得走的都捆在了身上："
+            + "、".join(cfg.item(i)["name"] for i in kept if i)
+            + "。其余的，都留给了这座城市。"
+        )
+
+        # ---- 进入下一地区首层 ----
+        rid = int(st.get("region_clear_pending") or 1)
+        nxt = rid + 1
+        first = min(self.cfg.regions[nxt].get("levels") or [rid * 5 + 1])
+        region = self.cfg.regions[nxt]
+        st["pending_decision"] = None
+        self._log("")
+        self._log(f"【地区 {nxt} · {region['name']}】{region.get('subtitle', '')}")
+        st["depth"] = first
+        await self._enter_level(first)
 
     # ------------------------------------------------------------------
     # 具体行动
@@ -1889,7 +2014,9 @@ class RunEngine:
         待处理的升级计数清零（XP/等级照常累计，只是不触发抽取）。
         """
         st = self.state
-        if st["depth"] >= self.cfg.max_level and st.get("boss_alive") is False:
+        # P8 地区化：撤离层特判按「所在地区最后一层」——地区 1 的 L5 撤离点
+        # 同样不弹天赋（max_level=10 后旧判定会漏掉它）
+        if st["depth"] == self.cfg.last_level_of(st["depth"]) and st.get("boss_alive") is False:
             if int(st.get("pending_levelups", 0)) > 0:
                 st["pending_levelups"] = 0
                 self._log("你已经站在撤离点了——现在想这些没什么用。")
@@ -2682,7 +2809,7 @@ class RunEngine:
 
     async def _act_evac(self, payload: dict) -> None:
         st = self.state
-        if st["depth"] != self.cfg.max_level:
+        if st["depth"] != self.cfg.last_level_of(st["depth"]):
             self._log("这里不是撤离点。")
             return
         if st.get("boss_alive") and st.get("boss_lured", 0) <= 0:
@@ -2696,6 +2823,22 @@ class RunEngine:
                            + loot.count(st, "photo")) * int(
             self.cfg.balance["scoring"]["trinket_score"]
         ) * float(talents.mod(st, "trinket_score_mult", 1.0))
+        # 撤离成功即脱离倒计时——换区选择界面不能再被倒计时追杀
+        st["evac_countdown"] = None
+        rid = self.cfg.region_id_for_level(st["depth"])
+
+        if rid < self.cfg.max_region:
+            # P8：中间地区的撤离 = 换区继续（对局不结束）。
+            # status 保持 active，走 evac_carry 待决策（选 3 件带装进下一地区）；
+            # 继承码/地区进度/解锁广播由 API 层在 act 后按 region_clear_pending 发放。
+            st["region_clear_pending"] = rid
+            st["pending_decision"] = "evac_carry"
+            self._log("* 你抓住起落架下的货梯把手，被拉上了运输直升机。 *")
+            self._log(f"** 地区 {rid} 撤离成功。（+撤离分，继承码稍后发放） **")
+            self._log("直升机调头向南。舱门再打开时，就该跳下去了——")
+            self._log("带不走的都得留下。选好你的三样东西：")
+            return
+
         st["status"] = "escaped"
         self._log("* 你抓住起落架，被拉进了机舱。城市在下面越来越小。 *")
         self._log(f"** 撤离成功。最终得分 {st['score']} **")
@@ -2928,7 +3071,12 @@ class RunEngine:
                 "tier": item.get("tier"),
                 # 护甲实例上限（修甲磨上限）：前端显示 cur/max
                 "max_durability": e.get("max_durability") if kind == "armor" else None,
-                "desc": _item_desc(item, kind),
+                "desc": _item_desc(item, kind)
+                + (
+                    f" · 耐久 {int(e['durability'])}/{self._armor_max(e)}"
+                    if kind == "armor" and e.get("durability") is not None
+                    else ""
+                ),
                 # 可出售类道具的预估回收价，前端直接展示，不必自己读配置
                 "sell": max(1, int(round(int(item.get("value", 1)) * _sell_ratio))) if sellable else None,
                 # 耐久低于商人门槛 → 出售按钮禁用并标注拒收原因
@@ -2976,6 +3124,7 @@ class RunEngine:
                 # 护甲磨损（自行车头盔明明在掉耐久却像永远满的）。
                 "armor": (
                     {
+                        "id": st["armor"]["id"],
                         "name": self.cfg.item(st["armor"]["id"])["name"],
                         "durability": (st["armor"] or {}).get("durability"),
                         "max_durability": self._armor_max(st["armor"]),
@@ -2985,6 +3134,7 @@ class RunEngine:
                 ),
                 "armor_desc": (
                     _item_desc(self.cfg.item(st["armor"]["id"]), "armor", self._armor_absorb_pct())
+                    + f" · 耐久 {(st['armor'] or {}).get('durability')}/{self._armor_max(st['armor'])}"
                     if st.get("armor") else None
                 ),
                 "backpack": (
@@ -3159,6 +3309,11 @@ class RunEngine:
                 for g in (st.get("grave_choices") or [])
             ] + [{"id": "grave", "label": "什么都不拿", "choice": "skip", "kind": "ghost"}]
 
+        if st.get("pending_decision") == "evac_carry":
+            # 撤离带装：三槽选择在专属面板（renderEvacCarry）里做，
+            # 命令区保持空——面板确认按钮直接发 carry 动作
+            return []
+
         if st.get("pending_decision") == "bag_overflow":
             # 背包超载（先拿后丢 / 换装缩水）：必须丢到容量以内，无"放弃"选项。
             # 消耗品多给一个"用了"——能用掉的就不用白扔；用完仍超载则决策继续。
@@ -3220,7 +3375,7 @@ class RunEngine:
             return acts
 
         if room.get("special_kind") == "stairs":
-            if st["depth"] == self.cfg.max_level:
+            if st["depth"] == self.cfg.last_level_of(st["depth"]):
                 if not st.get("boss_alive") or st.get("boss_lured", 0) > 0:
                     acts.append({"id": "evac", "label": "登上直升机", "kind": "primary"})
             elif self._elite_guard_active():

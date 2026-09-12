@@ -56,6 +56,10 @@ async function handleAction(a) {
     item: a.item,
     pay: a.pay,
     uid: a.uid,
+    // P8 撤离带装：三个槽位的物品 id
+    weapon: a.weapon,
+    gear: a.gear,
+    other: a.other,
   });
 }
 

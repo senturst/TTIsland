@@ -41,7 +41,9 @@ def generate_level(cfg: GameConfig, rng: RNG, level: int) -> dict[str, Any]:
     themes = cfg.levels_cfg["levels"]
 
     total = mg["rooms_base"]
-    if level != cfg.max_level:
+    # P8 地区化：撤离层 = 所在地区最后一层（每个地区一个，不再只认全局末层）
+    evac_floor = level == cfg.last_level_of(level)
+    if not evac_floor:
         total += rng.randint(0, mg["rooms_rand"])
     else:
         total = 8  # 撤离层固定，倒计时压着，不宜太大
@@ -120,7 +122,7 @@ def generate_level(cfg: GameConfig, rng: RNG, level: int) -> dict[str, Any]:
     branch_weights.pop("special", None)
     # 撤离层节奏特殊（倒计时压着、固定 8 房）：不刷灾害房/巢穴——
     # 强制遭遇的巢穴会把玩家血量打穿，让「硬杀 Boss」路径系统性失效。
-    if level == cfg.max_level:
+    if evac_floor:
         branch_weights.pop("hazard", None)
         branch_weights.pop("nest", None)
         main_weights.pop("hazard", None)
@@ -155,7 +157,7 @@ def generate_level(cfg: GameConfig, rng: RNG, level: int) -> dict[str, Any]:
     npc_cfg = mg.get("survivor_npc", {}) or {}
     min_level = int(npc_cfg.get("min_level", 2))
     npc_idx = None
-    if min_level <= level < cfg.max_level and rng.chance(float(npc_cfg.get("spawn_chance", 0))):
+    if min_level <= level < cfg.last_level_of(level) and rng.chance(float(npc_cfg.get("spawn_chance", 0))):
         cand = [
             i for i in range(1, main_len - 1)
             if rooms[i]["type"] == "empty"

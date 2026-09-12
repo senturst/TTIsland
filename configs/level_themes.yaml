@@ -111,6 +111,90 @@ levels:
     zombie_density: 0.69
     hooks: [evac_countdown, boss]
 
+  # ============ 地区 2 · 军事检疫营地（P8，6-10 层） ============
+  # 难度立场（用户拍板）：整体压一档——密度与遭遇数量高于地区 1，
+  # 目标通过率 80/68/57/47/37（targets 同步）。机制先复用现有钩子，
+  # 军事特色主要由遭遇表（新怪）与房间模板（军械富集）承载。
+
+  6:
+    id: 6
+    name: 前哨外围
+    icon: "🚧"
+    subtitle: 封锁线 · 警戒区
+    brief: 军方在这里设过检查站，后来检查站成了第一个沦陷的地方。
+    mechanism: 戒严巡逻
+    mechanism_desc: 封锁区的巡逻密度远高于城区——几乎每个房间都有东西在等你。没有花招，就是多。
+    entry_text: 探照灯还亮着，鹿砦后面堆着沙袋和没人认领的尸体。铁丝网上挂着一块牌子：检疫管制，禁止通行。
+    exit_text: 铁丝网在身后哗啦作响。你钻进了隔离带。
+    modifiers: {}
+    on_enter_level: {}
+    zombie_density: 0.95
+    hooks: []
+
+  7:
+    id: 7
+    name: 铁丝网隔离带
+    icon: "⛓️"
+    subtitle: 封锁线 · 隔离带
+    brief: 铁丝网割开了每一寸捷径。这里只剩下它们留给你走的那条路。
+    mechanism: 隔离带
+    mechanism_desc: 没有特殊机制——但狭窄的地形意味着遭遇不会少。省着点子弹。
+    entry_text: 缠绕的铁丝网一直延伸到视线尽头，每隔几米挂着一具穿军装的尸体。
+    exit_text: 你穿过隔离带。前面的建筑门口停着军车——军械库区到了。
+    modifiers: {}
+    on_enter_level: {}
+    zombie_density: 0.93
+    hooks: []
+
+  8:
+    id: 8
+    name: 军械库区
+    icon: "🪖"
+    subtitle: 封锁线 · 军械库
+    brief: 库房的卷帘门被从里面撞开过。架子上还剩什么，全看运气。
+    mechanism: 军械富集
+    mechanism_desc: 搜刮次数 ×1.4，武器与弹药的出率明显更高。带不走的枪比丧尸更让人心疼。
+    entry_text: 库房里堆满打开的板条箱，防弹插板散了一地，有人在这里武装到牙齿之后也没能走出去。
+    exit_text: 你推开指挥中心的大门。里面亮着应急灯。
+    modifiers:
+      loot_rolls_mult: 1.4
+    on_enter_level: {}
+    zombie_density: 0.9
+    hooks: []
+
+  9:
+    id: 9
+    name: 指挥中心
+    icon: "🗺️"
+    subtitle: 封锁线 · 指挥部
+    brief: 作战地图还钉在墙上，红线画到的位置一片漆黑。
+    mechanism: 指挥部卫队
+    mechanism_desc: 精英与重装单位的比例大增。真正的硬仗都在这一层——撑过去，停机坪就在楼上。
+    entry_text: 电台里有人在循环呼叫一个早已不存在的番号。桌上的咖啡杯里长出了霉。
+    exit_text: 楼梯通向天台。风里全是旋翼的声音。
+    modifiers: {}
+    on_enter_level: {}
+    zombie_density: 0.88
+    hooks: []
+
+  10:
+    id: 10
+    name: 停机坪
+    icon: "🚁"
+    subtitle: 顶层 · 撤离点
+    brief: 军用直升机的残骸堆在停机坪边缘。真正能飞的那架在中央，旋翼正在预热。
+    mechanism: 撤离倒计时
+    mechanism_desc: 36 回合内必须抵达撤离点，并消灭尸潮指挥官「葬列」——它穿着全套防弹插板，正面的每一寸都硬得像墙。
+    entry_text: 停机坪的风比天台更烈。那东西就站在直升机的舱门前面，像是在等什么，又像是在守什么。
+    exit_text: ""
+    modifiers:
+      evac_countdown: 36
+      boss_room: true
+    on_enter_level:
+      evac_countdown: 36
+    zombie_density: 0.72
+    hooks: [evac_countdown, boss]
+
 boss:
   id: tyrant_t03
   name: 暴君 T-03

@@ -156,6 +156,31 @@
     </div>
   </section>
 
+  <!-- ============ 撤离带装面板（P8）============
+       地区撤离后弹出：从现有物资里挑 1 武器 + 1 装备 + 1 其他带进下一地区，
+       其余全部留下。复用商人面板样式类；确认走 carry 动作（payload 带 3 个 id）。 -->
+  <section class="merchant hidden" id="evac-carry">
+    <div class="merchant-head">
+      <span class="merchant-title">撤离 · 选择带走的物资</span>
+      <span class="merchant-note">只能带走三样，其余的都会留在这座城市</span>
+    </div>
+    <div class="merchant-cols">
+      <div class="merchant-col">
+        <div class="merchant-col-title">① 武器（可以空手）</div>
+        <div class="merchant-shop" id="carry-weapons"></div>
+      </div>
+      <div class="merchant-col">
+        <div class="merchant-col-title">② 装备（护甲 / 背包）</div>
+        <div class="merchant-shop" id="carry-gear"></div>
+      </div>
+      <div class="merchant-col">
+        <div class="merchant-col-title">③ 其他物品</div>
+        <div class="merchant-shop" id="carry-other"></div>
+      </div>
+    </div>
+    <button class="btn btn-primary carry-confirm" id="carry-confirm" type="button">带好三样，跳下去</button>
+  </section>
+
   <!-- ============ 命令区 ============ -->
   <footer class="cmd" id="cmd" data-page-node-id="Bf1oywMCiGQdO5dTj6cx6q">
     <div class="cmd-buttons" id="cmd-buttons" data-page-node-id="CgNPExIjvwp3lm6vPolput"></div>

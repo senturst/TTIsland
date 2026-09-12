@@ -144,9 +144,126 @@ monsters:
         noise: 5
     desc: 实验体编号 T-03。它守在撤离点，像是被命令过。
 
+  # ---------------- 地区 2 · 军事检疫营地（P8） ----------------
+  # 设计基调：玩家此时已有 t2-t3 装备与升级，普通怪整体比地区 1 高一档；
+  # 数值先按"比地区 1 同位怪高 30-50%"给骨架，再跑 sim 校准。
+
+  - id: soldier
+    name: 变异士兵
+    icon: "🪖"
+    <<: *base
+    hp: 18
+    dmg: [4, 7]
+    acc: 65
+    armor: 1
+    speed: 5
+    bite_chance: 0.20
+    bite_infection: [4, 8]
+    score: 12
+    xp: 14
+    desc: 军装还在身上，枪却早就不在了。它用抢托和牙齿完成了最后一次巡逻。
+
+  - id: war_hound
+    name: 军犬
+    icon: "🐕"
+    <<: *base
+    hp: 9
+    dmg: [2, 5]
+    acc: 60
+    eva: 20
+    speed: 11
+    archetype: rusher
+    bite_chance: 0.45
+    bite_infection: [2, 5]
+    score: 10
+    xp: 12
+    desc: 检疫营地最忠诚的哨兵。死去很久了，叫声还是那么亮。
+
+  - id: riot
+    name: 防暴兵
+    icon: "🛡️"
+    <<: *base
+    hp: 28
+    dmg: [4, 7]
+    acc: 58
+    eva: 0
+    armor: 3
+    speed: 4
+    archetype: brute
+    bite_chance: 0.15
+    bite_infection: [3, 6]
+    score: 18
+    xp: 20
+    desc: 全套防暴装备把它锁在了里面。甲很硬，里面的东西已经不在了。
+
+  - id: burner
+    name: 燃烧兵
+    icon: "🔥"
+    <<: *base
+    hp: 18
+    dmg: [3, 6]
+    acc: 55
+    speed: 6
+    on_death:
+      explode:
+        dmg: [5, 9]
+        infection: [0, 0]
+        noise: 4
+    score: 14
+    xp: 15
+    desc: 烧夷弹把它点着了，也把它的怨火点着了。倒下时记得离远点。
+
+  - id: sergeant
+    name: 变异军士
+    icon: "🎖️"
+    <<: *base
+    # 地区 2 楼梯守门精英：对位 gatekeeper（20hp/4-6/62命中/甲1）高一档
+    hp: 30
+    dmg: [5, 8]
+    acc: 68
+    eva: 5
+    armor: 2
+    speed: 6
+    archetype: brute
+    bite_chance: 0.30
+    bite_infection: [5, 9]
+    elite: true
+    score: 60
+    xp: 45
+    desc: 军衔还别在领口。它守着封锁线的每一道门，直到命令被撤销——或者你被撤销。
+
+  - id: horde_marshal
+    name: 葬列
+    icon: "☠️"
+    <<: *base
+    # 地区 2 Boss：装甲尸潮指挥官。对位暴君（65hp/6-9/75命中/甲2）压一档：
+    # 血更厚、甲更硬，伤害峰值更高；两个技能循环（冲撞 + 尸潮践踏）。
+    hp: 100
+    dmg: [7, 10]
+    acc: 72
+    eva: 5
+    armor: 3
+    speed: 6
+    archetype: boss
+    boss: true
+    score: 300
+    xp: 80
+    abilities:
+      - id: marshal_charge
+        name: 装甲冲撞
+        cooldown: 4
+        dmg: [10, 15]
+        noise: 5
+      - id: marshal_stomp
+        name: 尸潮践踏
+        cooldown: 6
+        dmg: [7, 11]
+        noise: 8
+    desc: 它生前指挥过整条封锁线。现在它指挥的只有尸潮——而尸潮对它唯命是从。
+
 # 每层遭遇表
 #   count   —— 单次遭遇的敌人数量区间
-#   weights —— 怪物权重（ anorexia 高层引入更危险的怪）
+#   weights —— 怪物权重（高层引入更危险的怪）
 encounter_tables:
   per_level:
     1:
@@ -164,6 +281,22 @@ encounter_tables:
     5:
       count: [2, 3]
       weights: {walker: 35, runner: 30, lurker: 20, bloater: 15}
+    # ---- 地区 2 · 军事检疫营地（压一档：数量与怪强度同步上调） ----
+    6:
+      count: [2, 3]
+      weights: {walker: 30, runner: 25, soldier: 25, war_hound: 20}
+    7:
+      count: [2, 4]
+      weights: {walker: 20, runner: 25, soldier: 20, war_hound: 20, lurker: 15}
+    8:
+      count: [2, 4]
+      weights: {walker: 15, runner: 20, soldier: 25, riot: 15, burner: 10, bloater: 15}
+    9:
+      count: [3, 4]
+      weights: {soldier: 25, riot: 20, runner: 20, burner: 15, lurker: 10, bloater: 10}
+    10:
+      count: [3, 4]
+      weights: {soldier: 25, riot: 20, burner: 15, runner: 20, walker: 10, screamer: 10}
 
 # 尸潮追加的追击者
 horde:

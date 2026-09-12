@@ -130,6 +130,27 @@ class GameConfig:
         rid = self._level_region.get(int(level), 1)
         return self.regions.get(rid) or self.regions[1]
 
+    def region_id_for_level(self, level: int) -> int:
+        return self._level_region.get(int(level), 1)
+
+    def last_level_of(self, level: int) -> int:
+        """某层所在地区的最后一层（撤离点 / 地区 Boss 层）。
+
+        P8 地区化后「撤离层」是每地区一个，而不是全局最后一层——
+        引擎里所有 `level == max_level` 的撤离语义都应改用这里。
+        """
+        return self.region_last_level(self.region_id_for_level(level))
+
+    def region_boss(self, region_id: int) -> str:
+        """地区 Boss 的怪物 ID（守在该地区撤离点，击杀后才能登机）。"""
+        rid = int(region_id)
+        boss = (self.regions.get(rid) or {}).get("boss") or (
+            (self.levels_cfg.get("boss") or {}).get("id")
+        )
+        if not boss:
+            raise ConfigError(f"地区 {rid} 未配置 boss")
+        return str(boss)
+
     def region_last_level(self, region_id: int) -> int:
         """地区的最后一层（撤离点所在层）——撤离成功即解锁下一地区。"""
         levels = self.regions[int(region_id)].get("levels") or []
@@ -231,7 +252,8 @@ class GameConfig:
         if boss_id not in self.monsters:
             errs.append(f"boss.id 引用不存在的怪物: {boss_id}")
 
-        # 5b. 地区配置：实装地区的层必须有主题定义，且一层不能归属两个地区
+        # 5b. 地区配置：实装地区的层必须有主题定义，且一层不能归属两个地区；
+        #     地区 Boss（P8）必须是已定义的怪物
         for rid, region in self.regions.items():
             rlevels = region.get("levels") or []
             if not rlevels:
@@ -242,6 +264,9 @@ class GameConfig:
                 other = self._level_region.get(lv)
                 if other is not None and other != rid:
                     errs.append(f"第 {lv} 层同时归属地区 {other} 和 {rid}")
+            boss = region.get("boss")
+            if boss and boss not in self.monsters:
+                errs.append(f"地区 {rid} 的 boss 引用不存在的怪物: {boss}")
 
         # 6. 事件：层级合法、结果概率闭合、引用的物品/怪物存在
         for ev in self.events:

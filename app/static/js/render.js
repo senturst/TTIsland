@@ -8,7 +8,7 @@ const ACTION_ICONS = {
   evac: "🚁", use: "🧪", equip: "🎽", campfire: "🔥", move: "➜",
   status: "📊", give_up: "🏳️", lure: "📢", talent: "🧬", legacy: "🎁",
   zombify: "☣️", end: "🕯️", merchant: "🛒", discard: "🗑️",
-  hazard: "☢️", npc: "🧍", repair: "🔧",
+  hazard: "☢️", npc: "🧍", repair: "🔧", carry: "🎒",
 };
 
 const HUD_ICONS = {
@@ -1032,7 +1032,102 @@ export function renderAll(onAction) {
   renderSidePanel(onAction);
   renderMerchant(onAction);
   renderNpc(onAction);
+  renderEvacCarry(onAction);
   renderCommands(onAction);
+}
+
+/* ------------------------------------------------------------------ */
+/* 撤离带装面板（P8）：地区撤离后从现有物资里挑三样带进下一地区。
+ * 候选由前端从 state 分组（服务端 /action 不过滤，确认时服务端校验归属）。
+ * 选择状态存模块级变量——pending 期间的多次重渲染（busy 往返）不丢。 */
+let carrySel = { weapon: null, gear: null, other: null };
+let carryOpen = false;
+
+function carryChip(host, cand, slot, onAction) {
+  const card = document.createElement("div");
+  card.className = "mch-card" + (carrySel[slot] === cand.id ? " carry-sel" : "");
+  const wear = cand.wear != null
+    ? (cand.maxWear != null ? ` · 耐久 ${cand.wear}/${cand.maxWear}` : ` · 耐久 ${cand.wear}`)
+    : "";
+  card.innerHTML =
+    `<span class="mch-name">${cand.label}${cand.tier ? ` <span class="tier-badge tier-${cand.tier}">T${cand.tier}</span>` : ""}</span>` +
+    `<span class="mch-desc">${cand.desc || ""}${wear}</span>`;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn btn-ghost mch-btn";
+  b.textContent = carrySel[slot] === cand.id ? "✓ 已选" : "带上";
+  b.disabled = state.busy;
+  b.addEventListener("click", () => {
+    carrySel[slot] = carrySel[slot] === cand.id ? null : cand.id;
+    renderEvacCarry(onAction);
+  });
+  card.appendChild(b);
+  host.appendChild(card);
+}
+
+function carryGroup(id, candidates, slot, onAction, emptyText) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  box.innerHTML = "";
+  if (!candidates.length) {
+    const none = document.createElement("span");
+    none.className = "pack-empty";
+    none.textContent = emptyText;
+    box.appendChild(none);
+    return;
+  }
+  for (const c of candidates) carryChip(box, c, slot, onAction);
+}
+
+export function renderEvacCarry(onAction) {
+  const inCarry = state.pendingDecision === "evac_carry";
+  show("evac-carry", inCarry);
+  if (carryOpen && !inCarry) carryOpen = false;
+  if (!inCarry) return;
+  if (!carryOpen) {
+    carryOpen = true;
+    carrySel = { weapon: null, gear: null, other: null };
+  }
+
+  const inv = state.inventory || [];
+  const weapons = inv
+    .filter((i) => i.kind === "weapon")
+    .map((i) => ({ id: i.id, label: i.name, tier: i.tier, wear: i.durability, maxWear: i.max_durability, desc: i.desc }));
+  if (state.weapon?.id) {
+    weapons.unshift({
+      id: state.weapon.id, label: `${state.weapon.name}（手持）`,
+      tier: state.weapon.tier, wear: state.weapon.durability, desc: state.weapon.desc,
+    });
+  }
+  const gear = inv
+    .filter((i) => i.kind === "armor" || i.kind === "backpack")
+    .map((i) => ({ id: i.id, label: i.name, tier: i.tier, wear: i.durability, maxWear: i.max_durability, desc: i.desc }));
+  if (state.armor?.id) {
+    gear.unshift({
+      id: state.armor.id, label: `${state.armor.name}（穿戴中）`,
+      tier: state.armor.tier, wear: state.armor.durability, maxWear: state.armor.max_durability,
+    });
+  }
+  if (state.backpack?.id) {
+    gear.unshift({
+      id: state.backpack.id, label: `${state.backpack.name}（装备中）`,
+      tier: state.backpack.tier, wear: null,
+    });
+  }
+  const others = inv
+    .filter((i) => i.kind !== "weapon" && i.kind !== "armor" && i.kind !== "backpack")
+    .map((i) => ({ id: i.id, label: i.name + (i.qty > 1 ? ` ×${i.qty}` : ""), tier: i.tier, desc: i.desc }));
+
+  carryGroup("carry-weapons", weapons, "weapon", onAction, "空手跳下去（会捡到一把制式撬棍）");
+  carryGroup("carry-gear", gear, "gear", onAction, "不带装备");
+  carryGroup("carry-other", others, "other", onAction, "什么都不带");
+
+  const confirm = document.getElementById("carry-confirm");
+  if (confirm) {
+    confirm.disabled = state.busy;
+    confirm.onclick = () =>
+      onAction({ id: "carry", weapon: carrySel.weapon, gear: carrySel.gear, other: carrySel.other });
+  }
 }
 
 export function setBusy(busy) {
@@ -1044,7 +1139,7 @@ export function setBusy(busy) {
   // 漏恢复会让丢弃按钮永远点不了（玩家看起来就是"按钮被挡住了"）。
   const buttons = document.querySelectorAll(
     "#cmd-buttons .btn, #merchant .mch-btn, #npc .mch-btn, .pack-item .pack-drop, .pack-item .pack-fix, " +
-    ".side-cell .pack-drop, .side-cell .pack-fix"
+    ".side-cell .pack-drop, .side-cell .pack-fix, #evac-carry .mch-btn, .carry-confirm"
   );
   buttons.forEach((b) => { b.disabled = busy; });
 }

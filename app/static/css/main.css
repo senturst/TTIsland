@@ -339,6 +339,12 @@ body::after {
 .tier-badge.t5 { color: #efc964; border-color: rgba(239, 201, 100, .65); }
 .tier-badge.t6 { color: #f07a6e; border-color: rgba(240, 122, 110, .7); }
 
+/* 撤离带装面板（P8）：卡片可点选，选中态描磷光绿 */
+.mch-card { position: relative; }
+.mch-card.carry-sel { border-color: var(--phosphor); }
+.mch-card.carry-sel .mch-name { color: var(--phosphor); }
+.carry-confirm { margin-top: .6rem; width: 100%; }
+
 /* ============================ 右侧滑出面板（装备/物品格） ============================
  * 上层装备槽 + 下层物品格，网格布局为后续内容扩容准备。
  * transform 过渡滑出/滑入，不参与页面主布局流（position:fixed）。 */

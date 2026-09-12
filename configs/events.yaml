@@ -15,7 +15,7 @@ events:
 
   - id: blood_pool
     weight: 20
-    levels: [1, 5]
+    levels: [1, 10]
     text: "{ai_desc}。地上有一摊还没凝固的血。"
     choices:
       - id: search
@@ -32,7 +32,7 @@ events:
 
   - id: locked_door
     weight: 15
-    levels: [1, 5]
+    levels: [1, 10]
     text: "{ai_desc}。一扇锁死的门，门缝里透出一点光。"
     choices:
       - id: pry
@@ -57,7 +57,7 @@ events:
 
   - id: broken_vending
     weight: 12
-    levels: [1, 4]
+    levels: [1, 10]
     text: "{ai_desc}。一台自动售货机，玻璃碎了一地。"
     choices:
       - id: reach
@@ -74,7 +74,7 @@ events:
 
   - id: radio_signal
     weight: 10
-    levels: [2, 5]
+    levels: [2, 10]
     text: "{ai_desc}。一台还在工作的收音机，里面传出断断续续的人声。"
     choices:
       - id: listen
@@ -91,7 +91,7 @@ events:
 
   - id: survivor_body
     weight: 14
-    levels: [1, 5]
+    levels: [1, 10]
     text: "{ai_desc}。一具还很新的尸体，装备还在。"
     choices:
       - id: loot
@@ -112,7 +112,7 @@ events:
 
   - id: antibiotic_cache
     weight: 8
-    levels: [3, 5]
+    levels: [3, 10]
     text: "{ai_desc}。一个被撬过的医药箱，里面还剩点东西。"
     choices:
       - id: take
@@ -144,7 +144,7 @@ events:
 
   - id: survivor_camp
     weight: 8
-    levels: [1, 4]
+    levels: [1, 10]
     text: "{ai_desc}。有人在这里住过，火堆还是温的。"
     choices:
       - id: rest

@@ -113,6 +113,39 @@ def _build_grave_gear(cfg, st: dict) -> list[dict]:
     return gear
 
 
+async def _grant_region_clear(client_id: str, engine: RunEngine, cleared_rid: int) -> None:
+    """P8：中间地区撤离成功——发继承码 + 记录地区进度 + 广播解锁下一地区。
+
+    对局继续（engine.status 仍 active），不走 _finalize（那是终局收尾）。
+    继承码以引擎日志写进主文本区（run.py 无法改前端 DOM，走 _out 最顺）。
+    """
+    cfg = _cfg()
+    player = engine.state.get("player_name", "无名者")
+    region = cfg.regions.get(int(cleared_rid)) or {}
+    pre = await db_call(repo.players.get, client_id) or {}
+    prev_region = int(pre.get("region_progress", 0) or 0)
+    if int(cleared_rid) > prev_region:
+        await db_call(repo.players.record_region_clear, client_id, int(cleared_rid))
+        if int(cleared_rid) + 1 in cfg.regions:
+            nxt = cfg.regions[int(cleared_rid) + 1]
+            _emit_event(
+                "record",
+                f"{player} 突破了{region.get('name', '未知地区')}——"
+                f"新的地区「{nxt['name']}」已经解锁！",
+                player=player,
+            )
+    code = await db_call(
+        repo.inherit.create_for_player, client_id, engine.state.get("run_id")
+    )
+    await db_call(
+        repo.notifications.add, client_id,
+        "system",
+        f"你的继承码：{code}（在新设备输入可接回本档案，仅可使用一次）",
+        {"code": code},
+    )
+    engine._log(f"继承码：{code}（在新设备输入可接回本档案，仅可使用一次）")
+
+
 async def _finalize(client_id: str, run_id: str, engine: RunEngine) -> None:
     """run 结束后的收尾：广播事件、写墓碑、更新统计、保存遗物。
 
@@ -158,7 +191,7 @@ async def _finalize(client_id: str, run_id: str, engine: RunEngine) -> None:
                 _emit_event(
                     "record",
                     f"{player} 突破了{region['name']}——新的地区「{nxt['name']}」已经解锁！",
-                    player=player, region=rid + 1,
+                    player=player,
                 )
 
     # 遗物继承（软 Roguelite）
@@ -355,6 +388,13 @@ async def action(
 
     engine = await _load_engine(client_id, row)
     resp = await engine.act(body.action, body.payload)
+
+    # P8：中间地区撤离成功 → 立刻发继承码 + 记录地区进度 + 广播解锁。
+    # 对局继续（engine.status 仍 active），不走 _finalize（那是终局收尾）。
+    cleared = engine.state.pop("region_clear_pending", None)
+    if cleared:
+        await _grant_region_clear(client_id, engine, int(cleared))
+        resp["narrative"] = list(engine._out)
 
     # 墓碑互动（摸走一件/掩埋）的 DB 落盘：在保存状态之前清掉标记位
     await _persist_grave_effects(client_id, engine)

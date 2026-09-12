@@ -49,6 +49,34 @@ templates:
       enemy_bonus: 0
       vibe: 空旷的天台，风很大，远处有螺旋桨的声音
 
+    # ---- 地区 2 · 军事检疫营地（P8） ----
+    - id: checkpoint_ruins
+      name: 哨卡残址
+      level_min: 6
+      level_max: 8
+      enemy_bonus: 1
+      vibe: 沙袋堆成的检查站，探照灯还亮着，射界扫过整条街
+    - id: quarantine_tents
+      name: 隔离军帐
+      level_min: 6
+      level_max: 8
+      enemy_bonus: 1
+      infection_on_enter: [1, 3]
+      vibe: 成排的隔离帐篷，帐帘半开，里面传出拖行的脚步声
+    - id: motor_pool
+      name: 装甲车场
+      level_min: 7
+      level_max: 9
+      enemy_bonus: 1
+      noise_on_enter: 1
+      vibe: 报废的装甲车挤满车场，履带缝里长出了草
+    - id: command_floor
+      name: 指挥楼层
+      level_min: 9
+      level_max: 10
+      enemy_bonus: 2
+      vibe: 作战室的地图墙上插满红旗，每一面都代表一个死掉的哨所
+
   loot:
     - id: pharmacy
       name: 药房
@@ -85,6 +113,27 @@ templates:
       rolls: [1, 1]
       vibe: 更衣室，储物柜大多被撬开了
 
+    # ---- 地区 2 · 军事检疫营地（P8）：军械富集 ----
+    - id: armory_locker
+      name: 军械柜
+      tables: [weapons, ammo]
+      rolls: [1, 2]
+      pry_required: true
+      noise_on_pry: 2
+      vibe: 一排武器架，枪大多被拿走了，剩下的那几支看运气
+    - id: supply_crate
+      name: 军需补给箱
+      tables: [ammo, food, medical]
+      rolls: [1, 2]
+      vibe: 堆在墙角的军用补给箱，封条大多完好
+    - id: field_armory
+      name: 军械库房
+      tables: [weapons, gear]
+      rolls: [1, 2]
+      pry_required: true
+      noise_on_pry: 3
+      vibe: 库房深处的重械架，防弹插板和夜视仪散了一地
+
   empty:
     - id: quiet_hall
       name: 空旷大厅
@@ -114,7 +163,7 @@ templates:
     - id: wandering_trader
       name: 流浪商人
       level_min: 1
-      level_max: 5
+      level_max: 10
       vibe: 一个裹着破毯子的身影在翻拣货物，看见你眼睛亮了一下——「废铁换命，懂？」
 
   # ============================================================================
@@ -128,7 +177,7 @@ templates:
     - id: gas_leak
       name: 毒气渗漏
       level_min: 1
-      level_max: 5
+      level_max: 10
       countdown: 3
       onset: {infection: [1, 3]}
       worsening: {infection: [2, 5]}
@@ -149,7 +198,7 @@ templates:
     - id: collapsing_floor
       name: 坍塌现场
       level_min: 2
-      level_max: 5
+      level_max: 10
       countdown: 3
       onset: {cut: [1, 3]}
       worsening: {cut: [2, 5], noise: 2}
@@ -192,6 +241,16 @@ templates:
       harvest_quality: 2
       harvest_cash: [3, 8]
       vibe: 整个房间被变异组织吞没，中央的卵囊还在缓缓开合
+    # ---- 地区 2 · 军事检疫营地（P8） ----
+    - id: kennel_nest
+      name: 军犬舍
+      level_min: 6
+      level_max: 9
+      enemy_bonus: 2
+      harvest_tables: [ammo, medical]
+      harvest_rolls: 2
+      harvest_quality: 1
+      vibe: 一排排铁丝犬笼全部被从里面撞开，食盆里长出了霉
 
   special:
     - id: stairs_down
