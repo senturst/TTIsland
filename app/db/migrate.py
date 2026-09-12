@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .pool import connect, db_path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
@@ -59,6 +59,20 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
     # v6：地区进度（P6.2.1）—— 玩家已从哪个地区撤离过（0=尚未通关任何地区）
     (6, [
         "ALTER TABLE players ADD COLUMN region_progress INTEGER NOT NULL DEFAULT 0",
+    ]),
+    # v7：继承码——撤离成功发放一次性恢复码，玩家换身份后可接回旧档案
+    (7, [
+        """
+        CREATE TABLE IF NOT EXISTS inherit_codes (
+            code         TEXT PRIMARY KEY,
+            from_player  TEXT NOT NULL,
+            created_at   INTEGER NOT NULL,
+            used_by      TEXT,
+            used_at      INTEGER,
+            run_id       TEXT
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_inherit_from ON inherit_codes(from_player)",
     ]),
 ]
 

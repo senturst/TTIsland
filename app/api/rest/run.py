@@ -201,6 +201,17 @@ async def _finalize(client_id: str, run_id: str, engine: RunEngine) -> None:
             is_plagued=bool(st.get("zombified")),
         )
 
+    # 继承码（v7）：撤离成功发一次性恢复码。玩家身份是 localStorage UUID，
+    # 清缓存/换设备 = 进度丢失；码可在新身份上接回档案，只能核销一次。
+    if escaped:
+        code = await db_call(repo.inherit.create_for_player, client_id, run_id)
+        await db_call(
+            repo.notifications.add, client_id,
+            "system",
+            f"你的继承码：{code}（在新设备输入可接回本档案，仅可使用一次）",
+            {"code": code},
+        )
+
 
 async def _persist_grave_effects(client_id: str, engine: RunEngine) -> None:
     """墓碑互动的持久化：摸走一件道具 / 掩埋。

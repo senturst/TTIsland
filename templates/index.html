@@ -30,6 +30,22 @@
   </div>
 </div>
 
+<!-- ============ 继承码弹窗 ============
+     换设备/清缓存后，用撤离时拿到的继承码接回旧档案（一次性核销）。 -->
+<div class="overlay hidden" id="redeem-overlay">
+  <div class="name-panel">
+    <div class="name-title">输入继承码</div>
+    <div class="name-sub">接回你之前的档案：名字、纪录、遗物与地区进度。码只能用一次。</div>
+    <input class="name-input" id="redeem-input" type="text" maxlength="16"
+           placeholder="TT-XXXX-XXXX" autocomplete="off" style="text-transform:uppercase" />
+    <div class="name-err hidden" id="redeem-err"></div>
+    <div style="display:flex; gap:8px; justify-content:center;">
+      <button class="btn btn-primary" id="redeem-confirm" type="button">接回档案</button>
+      <button class="btn btn-ghost" id="redeem-cancel" type="button">算了</button>
+    </div>
+  </div>
+</div>
+
 <main id="app" class="app hidden" aria-live="polite" data-page-node-id="5VVepoVQ0o9jj7CuuLCvHN">
 
   <!-- ============ HUD ============ -->
@@ -86,7 +102,9 @@
 
   <!-- ============ 随身物品 ============
        纪念品 / 材料 / 弹药这三类不会生成操作按钮，
-       所以必须有这个常驻面板，否则拿到手也看不见。 -->
+       所以必须有这个常驻面板，否则拿到手也看不见。
+       已装备的护甲/背包移到右侧滑出的装备面板（#side-panel），
+       武器仍保留在这里（战斗中一眼可见）。 -->
   <section class="pack" id="pack" data-page-node-id="QCLr3HgY7n98DEi2L4oKlz">
     <span class="pack-label" id="pack-label" data-page-node-id="dmqypoLpBq9TOg9cuQoDjl">随身</span>
     <div class="pack-items" id="pack-items" data-page-node-id="ASpvjI8r0WvcuLRVDnNm2d"></div>
@@ -162,6 +180,22 @@
       </div>
     </div>
   </div>
+
+  <!-- ============ 右侧滑出：装备 / 物品格子面板 ============
+       上层装备（武器/护甲/背包三槽位，可卸下/修理），
+       下层物品格（网格布局，为后续内容扩容做准备）。
+       点边缘把手滑出/滑入。 -->
+  <button class="side-toggle" id="side-toggle" type="button" title="装备与物品"
+          aria-expanded="false">🎒</button>
+  <aside class="side-panel" id="side-panel" aria-hidden="true">
+    <div class="side-head">
+      <span class="side-title">装备</span>
+      <button class="side-close" id="side-close" type="button" title="收起">✕</button>
+    </div>
+    <div class="side-equip-grid" id="side-equip"></div>
+    <div class="side-sub">物品</div>
+    <div class="side-items-grid" id="side-items"></div>
+  </aside>
 </main>
 
 <script type="module" src="/static/js/main.js"></script>

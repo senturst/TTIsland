@@ -248,6 +248,39 @@ def test_growth_config_exists():
     assert float(g["xp_curve"]) > 1.0, "曲线系数必须 >1（逐级变贵）"
 
 
+def test_start_items_talent_grants_items():
+    """快速凝血（start_items: [[bandage, 2]]）选完当场发放物品。
+
+    修复前：start_items 只有 balance.player.start_items 消费，天赋里的
+    同名键从未被读取——绷带永远不来，玩家白白浪费一个天赋位。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await RunEngine.new_run(cfg, None)
+        if eng.state.get("pending_decision") == "talent":
+            opts = eng.state["talent_options"]
+            qc = next(
+                (i for i, o in enumerate(opts) if o["id"] == "quick_clot"), None
+            )
+            if qc is None:
+                return  # 本局没抽到就跳过（抽到局断言在下面由 hits 保证）
+            from app.core import loot
+            before = loot.count(eng.state, "bandage")
+            await eng._act_talent({"index": qc})
+            assert loot.count(eng.state, "bandage") == before + 2, \
+                "选快速凝血应当场发 2 个绷带"
+            return True
+
+    hits = 0
+    for _ in range(120):
+        if asyncio.run(run()):
+            hits += 1
+            if hits >= 2:
+                break
+    assert hits >= 2, f"120 局只抽到 {hits} 次 quick_clot，抽样不足"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

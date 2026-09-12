@@ -169,12 +169,23 @@ export function renderHUD() {
     setHTML("c-evac", `${hotIcon(HUD_ICONS.evac)} 撤离 ${s.evacCountdown}`);
   }
 
-  // 天赋（悬停显示效果，防止玩家遗忘自己选了什么）
-  show("c-talent", !!s.talent);
-  if (s.talent) {
-    setHTML("c-talent", `${iconOf(HUD_ICONS.talent)} ${s.talent.name}`);
+  // 天赋（悬停显示效果，防止玩家遗忘自己选了什么）。
+  // P7 多天赋：data.talents 是数组；data.talent 是同一数据的兼容字段（也是数组）。
+  // 修复 undefined：此前前端读 s.talent.name，但 talent 现在是列表 → 永远 undefined。
+  const talents = Array.isArray(s.talents) && s.talents.length
+    ? s.talents
+    : Array.isArray(s.talent)
+      ? s.talent
+      : s.talent && typeof s.talent === "object" && s.talent.name
+        ? [s.talent]
+        : [];
+  show("c-talent", talents.length > 0);
+  if (talents.length) {
+    setHTML("c-talent", `${iconOf(HUD_ICONS.talent)} ${talents.map((t) => t.name).join("·")}`);
     const tEl = document.getElementById("c-talent");
-    if (tEl) tEl.title = `本局天赋：${s.talent.name}\n${s.talent.desc || ""}`;
+    if (tEl) {
+      tEl.title = talents.map((t) => `【${t.name}】${t.desc || ""}`).join("\n");
+    }
   }
 
   // 当前生效的临时增益（瞄准等），让玩家看清这回合的命中加成来源
@@ -230,8 +241,44 @@ export function renderEnemies() {
  * 必须有这个面板：纪念品 / 材料 / 弹药这三类不会生成操作按钮
  * （它们没有可执行的动作），如果只靠命令区的按钮来展现物品，
  * 玩家拿到全家福这种计分道具后是完全看不见的。
+ *
+ * 已装备的护甲/背包移到右侧滑出面板（renderSidePanel），不在这里重复展示；
+ * 武器是例外——战斗中需要一眼看到手上的家伙，所以两处都显示。
  */
 const KIND_ORDER = { weapon: 0, armor: 1, consumable: 2, trinket: 3, material: 4, ammo: 5 };
+
+/** 收集已装备槽位条目（weapon/armor/backpack），renderPack 与 renderSidePanel 共用。 */
+function heldEntries() {
+  const entries = [];
+  if (state.weapon?.name && state.weapon.name !== "空手") {
+    entries.push({
+      id: "__held_weapon__", name: state.weapon.name, qty: 1,
+      kind: "weapon", held: true, slot: "weapon",
+      wear: state.weapon.durability != null ? state.weapon.durability : null,
+      maxWear: state.weapon.max_durability != null ? state.weapon.max_durability : null,
+      desc: state.weapon.desc || null,
+    });
+  }
+  if (state.armor) {
+    // P7 后 armor 是 {name, durability, max_durability}；旧档兼容字符串
+    const aName = typeof state.armor === "string" ? state.armor : state.armor.name;
+    const aDur = typeof state.armor === "object" ? state.armor.durability : null;
+    const aMax = typeof state.armor === "object" ? state.armor.max_durability : null;
+    entries.push({
+      id: "__held_armor__", name: aName, qty: 1, kind: "armor", held: true, slot: "armor",
+      wear: aDur != null ? aDur : null,
+      maxWear: aMax != null ? aMax : null,
+      desc: state.armorDesc || null,
+    });
+  }
+  if (state.backpack) {
+    entries.push({
+      id: "__held_backpack__", name: state.backpack.name, qty: 1,
+      kind: "backpack", held: true, slot: "backpack", desc: state.backpack.desc || null,
+    });
+  }
+  return entries;
+}
 
 export function renderPack(onAction) {
   const box = document.getElementById("pack-items");
@@ -246,26 +293,8 @@ export function renderPack(onAction) {
     label.textContent = `随身 ${used}/${cap}`;
   }
 
-  const entries = [];
-
-  // 已装备的排最前，让玩家一眼看到自己的装备状态
-  if (state.weapon?.name && state.weapon.name !== "空手") {
-    entries.push({
-      id: "__held_weapon__", name: state.weapon.name, qty: 1,
-      kind: "weapon", held: true,
-      wear: state.weapon.durability != null ? state.weapon.durability : null,
-      desc: state.weapon.desc || null,
-    });
-  }
-  if (state.armor) {
-    entries.push({ id: "__held_armor__", name: state.armor, qty: 1, kind: "armor", held: true, desc: state.armorDesc || null });
-  }
-  if (state.backpack) {
-    entries.push({
-      id: "__held_backpack__", name: state.backpack.name, qty: 1,
-      kind: "backpack", held: true, desc: state.backpack.desc || null,
-    });
-  }
+  // 只显示背包里的物品 + 手上的武器（护甲/背包在滑出面板）
+  const entries = heldEntries().filter((e) => e.slot === "weapon");
   for (const it of state.inventory || []) {
     if (it.qty > 0) entries.push({ ...it });
   }
@@ -357,6 +386,21 @@ export function renderPack(onAction) {
       );
     }
 
+    // 已装备的条目：卸下按钮（脱下收回背包；超容量由 bag_overflow 决策兜底）
+    if (it.held && it.slot && !locked && !state.busy) {
+      const off = document.createElement("button");
+      off.type = "button";
+      off.className = "btn btn-ghost pack-drop";
+      off.textContent = "卸下";
+      off.disabled = state.busy;
+      off.title = "脱下并放进背包（背包放不下会让你先腾地方）";
+      off.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onAction({ id: "unequip", slot: it.slot });
+      });
+      node.appendChild(off);
+    }
+
     // 背包里的物品：丢弃按钮（带二次确认，明确告知无法找回）
     if (!it.held && !locked) {
       const drop = document.createElement("button");
@@ -385,22 +429,42 @@ export function renderPack(onAction) {
       node.appendChild(drop);
     }
 
-    // 残血武器（手上的或背包里的）：废料修理——非商人区域也能修
-    const maxd = maxWearOf(it);
-    const repairable = !locked && it.kind === "weapon" && it.wear != null
-      && it.wear < maxd && !state.inCombat && scrapQty >= scrapCost;
+    // 残血武器/护甲（手上的或背包里的）：废料或胶带修理——非商人区域也能修
+    const maxd = it.maxWear != null ? it.maxWear : maxWearOf(it);
+    const tapePts = rates.tape_points ?? 2;
+    const tapeQty = state.tape ?? 0;
+    const repairable = !locked && (it.kind === "weapon" || it.kind === "armor")
+      && it.wear != null
+      && it.wear < maxd && !state.inCombat
+      && (scrapQty >= scrapCost || tapeQty >= 1);
     if (repairable) {
-      const fix = document.createElement("button");
-      fix.type = "button";
-      fix.className = "btn btn-safe pack-fix";
-      fix.textContent = `🧱${scrapCost} 修${scrapPts}点`;
-      fix.disabled = state.busy;
-      fix.title = `用 ${scrapCost} 废料修 ${scrapPts} 点耐久（余数舍弃，可逐次修满，不降耐久上限）`;
-      fix.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onAction({ id: "repair", item: it.id, pay: "scrap" });
-      });
-      node.appendChild(fix);
+      // 有废料给废料按钮，有胶带给胶带按钮（两者都缺就不显示——上面 repairable 已挡）
+      if (scrapQty >= scrapCost) {
+        const fix = document.createElement("button");
+        fix.type = "button";
+        fix.className = "btn btn-safe pack-fix";
+        fix.textContent = `🧱${scrapCost} 修${scrapPts}点`;
+        fix.disabled = state.busy;
+        fix.title = `用 ${scrapCost} 废料修 ${scrapPts} 点耐久（余数舍弃，可逐次修满，不降耐久上限）`;
+        fix.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onAction({ id: "repair", item: it.id, pay: "scrap" });
+        });
+        node.appendChild(fix);
+      }
+      if (tapeQty >= 1) {
+        const fixT = document.createElement("button");
+        fixT.type = "button";
+        fixT.className = "btn btn-safe pack-fix";
+        fixT.textContent = `🧻1 修${tapePts}点`;
+        fixT.disabled = state.busy;
+        fixT.title = `用 1 卷胶带修 ${tapePts} 点耐久（应急补，可逐次修满，不降耐久上限）`;
+        fixT.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onAction({ id: "repair", item: it.id, pay: "tape" });
+        });
+        node.appendChild(fixT);
+      }
     }
 
     box.appendChild(node);
@@ -413,6 +477,200 @@ function maxWearOf(it) {
   const opts = state.repairOptions || [];
   const r = opts.find((o) => o.id === it.id);
   return r ? r.max : Infinity;
+}
+
+/* ------------------------------------------------------------------ */
+/** 右侧滑出面板：上层装备槽（可卸下/修理），下层物品格。
+ *  网格布局为后续内容扩容做准备——加新分区只需多加一个 grid 容器。
+ *  开合由 main.js 的 setupSidePanel 控制，这里只负责内容渲染。 */
+const SLOT_LABEL = { weapon: "武器", armor: "护甲", backpack: "背包" };
+
+function sideCellBase(it) {
+  const node = document.createElement("div");
+  node.className = "side-cell";
+  if (it.held) {
+    node.classList.add(`equip-${it.slot}`);
+  } else if (it.usable || it.wearable) {
+    node.classList.add("act");
+  } else {
+    node.classList.add("inert");
+    if (it.kind === "trinket") node.classList.add("trinket");
+  }
+
+  const ic = document.createElement("span");
+  ic.className = "icon";
+  ic.textContent = iconFor(it.id) || (
+    it.kind === "trinket" ? "📦" : it.kind === "ammo" ? "🔩" :
+    it.kind === "material" ? "🧱" : it.kind === "armor" ? "🛡️" :
+    it.kind === "backpack" ? "🎒" : "•"
+  );
+
+  const nm = document.createElement("span");
+  nm.className = "sc-name";
+  nm.textContent = it.name;
+  nm.title = it.name;
+
+  node.append(ic, nm);
+
+  // 数量 / 耐久（单行小字）
+  const tag = document.createElement("span");
+  if (it.qty > 1) tag.textContent = `×${it.qty}`;
+  else if (it.wear != null) { tag.textContent = `${it.wear}`; tag.className = "wear"; tag.title = "剩余耐久"; }
+  else tag.textContent = "";
+  if (tag.textContent) node.appendChild(tag);
+
+  // 悬停说明：名字 + 耐久 + 道具摘要
+  const bits = [it.name];
+  if (it.wear != null) {
+    const maxd = it.maxWear != null ? it.maxWear : maxWearOf(it);
+    if (Number.isFinite(maxd)) bits.push(`耐久 ${it.wear}/${maxd}`);
+    else bits.push(`耐久 ${it.wear}`);
+  }
+  if (it.desc) bits.push(it.desc);
+  node.title = bits.join("\n");
+
+  return node;
+}
+
+function sideActionButtons(node, it, onAction) {
+  const locked = !!state.pendingDecision;
+  const rates = state.repairRates || {};
+  const scrapCost = rates.scrap_cost ?? 1;
+  const scrapPts = rates.scrap_points ?? 1;
+  const tapePts = rates.tape_points ?? 2;
+  const scrapQty = state.scrap ?? 0;
+  const tapeQty = state.tape ?? 0;
+  const btns = [];
+
+  // 可用 / 可换装：整格点击触发
+  if (!it.held && !locked && (it.usable || it.wearable)) {
+    node.addEventListener("click", () =>
+      onAction({ id: it.usable ? "use" : "equip", item: it.id, label: it.name })
+    );
+  }
+
+  // 已装备：卸下
+  if (it.held && !locked && !state.busy) {
+    const off = document.createElement("button");
+    off.type = "button";
+    off.className = "pack-drop";
+    off.textContent = "卸下";
+    off.disabled = state.busy;
+    off.title = "脱下并放进背包（背包放不下会让你先腾地方）";
+    off.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onAction({ id: "unequip", slot: it.slot });
+    });
+    btns.push(off);
+  }
+
+  // 背包物品：丢弃（二次确认）
+  if (!it.held && !locked) {
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "pack-drop";
+    drop.textContent = "丢";
+    drop.disabled = state.busy;
+    drop.title = "丢弃后无法找回";
+    drop.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (drop.dataset.confirm !== "1") {
+        drop.dataset.confirm = "1";
+        drop.textContent = "确认？";
+        setTimeout(() => {
+          if (drop.isConnected) { drop.dataset.confirm = ""; drop.textContent = "丢"; }
+        }, 3000);
+        return;
+      }
+      onAction({ id: "discard", choice: "drop", item: it.id });
+    });
+    btns.push(drop);
+  }
+
+  // 残血装备：废料/胶带修理（与随身面板同一套规则）
+  const maxd = it.maxWear != null ? it.maxWear : maxWearOf(it);
+  const repairable = !locked && (it.kind === "weapon" || it.kind === "armor")
+    && it.wear != null && Number.isFinite(maxd)
+    && it.wear < maxd && !state.inCombat
+    && (scrapQty >= scrapCost || tapeQty >= 1);
+  if (repairable) {
+    if (scrapQty >= scrapCost) {
+      const fix = document.createElement("button");
+      fix.type = "button";
+      fix.className = "pack-fix";
+      fix.textContent = `🧱+${scrapPts}`;
+      fix.disabled = state.busy;
+      fix.title = `用 ${scrapCost} 废料修 ${scrapPts} 点耐久（余数舍弃，可逐次修满）`;
+      fix.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onAction({ id: "repair", item: it.id, pay: "scrap" });
+      });
+      btns.push(fix);
+    }
+    if (tapeQty >= 1) {
+      const fixT = document.createElement("button");
+      fixT.type = "button";
+      fixT.className = "pack-fix";
+      fixT.textContent = `🧻+${tapePts}`;
+      fixT.disabled = state.busy;
+      fixT.title = `用 1 卷胶带修 ${tapePts} 点耐久（应急补，可逐次修满）`;
+      fixT.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onAction({ id: "repair", item: it.id, pay: "tape" });
+      });
+      btns.push(fixT);
+    }
+  }
+
+  if (btns.length) {
+    const row = document.createElement("span");
+    row.className = "side-btns";
+    row.append(...btns);
+    node.appendChild(row);
+  }
+}
+
+export function renderSidePanel(onAction) {
+  const equipBox = document.getElementById("side-equip");
+  const itemsBox = document.getElementById("side-items");
+  if (!equipBox || !itemsBox) return;
+
+  // 上层：三个装备槽位（空槽位也画出来，玩家一眼看清哪个槽空着）
+  equipBox.innerHTML = "";
+  const held = heldEntries();
+  for (const slot of ["weapon", "armor", "backpack"]) {
+    const it = held.find((e) => e.slot === slot);
+    if (it) {
+      const cell = sideCellBase(it);
+      sideActionButtons(cell, it, onAction);
+      equipBox.appendChild(cell);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "side-cell empty";
+      empty.textContent = SLOT_LABEL[slot];
+      equipBox.appendChild(empty);
+    }
+  }
+
+  // 下层：背包里的物品，按类别排序（同 KIND_ORDER）
+  const items = (state.inventory || []).filter((i) => i.qty > 0)
+    .slice().sort((a, b) => {
+      const d = (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9);
+      return d !== 0 ? d : a.name.localeCompare(b.name, "zh");
+    });
+  itemsBox.innerHTML = "";
+  if (!items.length) {
+    const none = document.createElement("span");
+    none.className = "pack-empty";
+    none.textContent = "空空如也";
+    itemsBox.appendChild(none);
+    return;
+  }
+  for (const it of items) {
+    const cell = sideCellBase(it);
+    sideActionButtons(cell, it, onAction);
+    itemsBox.appendChild(cell);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -601,6 +859,19 @@ export function renderMerchant(onAction) {
       bc.title = cash < r.cash_cost ? "现金不够" : "每次消耗 1 现金修 2 点耐久（余数舍弃），可逐次修满；不降耐久上限";
       bc.addEventListener("click", () => onAction({ id: "merchant", choice: "repair", item: r.id, pay: "cash" }));
       card.append(bs, bc);
+      // 胶带修理：每个胶带修固定点数（应急补，第三种修理资源）
+      const tapeQty = state.tape ?? 0;
+      const tp = Math.min(r.tape_points ?? 2, r.max - r.cur);
+      if (tp > 0) {
+        const bt = document.createElement("button");
+        bt.type = "button";
+        bt.className = "btn btn-safe mch-btn";
+        bt.textContent = `胶带修 ${tp} 点（🧻 1）`;
+        bt.disabled = tapeQty < 1 || state.busy;
+        bt.title = tapeQty < 1 ? "没有胶带" : "每次消耗 1 胶带修 2 点耐久，可逐次修满；不降耐久上限";
+        bt.addEventListener("click", () => onAction({ id: "merchant", choice: "repair", item: r.id, pay: "tape" }));
+        card.appendChild(bt);
+      }
       repBox.appendChild(card);
     }
   }
@@ -616,16 +887,21 @@ export function renderMerchant(onAction) {
     for (const i of sellable) {
       const card = document.createElement("div");
       card.className = "mch-card";
-      // 每次只卖 1 件；该商人不再收购已成交过的同款（防折价买→回收卖套利）
+      // 每次只卖 1 件；该商人不再收购已成交过的同款（防折价买→回收卖套利）。
+      // 耐久低于商人门槛（默认 50%）的武器/护甲拒收：按钮禁用并标注原因。
+      const rejected = !!i.sell_rejected;
+      const durText = rejected ? "磨损太厉害，商人拒收" : `回收 💰 ${i.sell}（卖 1 件）`;
+      // 同名装备不合并（各有各的耐久）：标上耐久让玩家知道卖的是哪一件
+      const durTag = i.durability != null ? ` ·耐久${i.durability}` : "";
       card.innerHTML =
-        `<span class="mch-name">${iconFor(i.id) || "📦"} ${i.name}${i.qty > 1 ? ` ×${i.qty}` : ""}</span>` +
-        `<span class="mch-desc">回收 💰 ${i.sell}（卖 1 件）</span>`;
+        `<span class="mch-name">${iconFor(i.id) || "📦"} ${i.name}${durTag}${i.qty > 1 ? ` ×${i.qty}` : ""}</span>` +
+        `<span class="mch-desc">${durText}</span>`;
       const b = document.createElement("button");
       b.type = "button";
       b.className = "btn btn-ghost mch-btn";
-      b.textContent = "出售";
-      b.disabled = state.busy;
-      b.title = "";
+      b.textContent = rejected ? "拒收" : "出售";
+      b.disabled = state.busy || rejected;
+      b.title = rejected ? "修好一点再来卖（需耐久 ≥ 总耐久 50%）" : "";
       b.addEventListener("click", () => onAction({ id: "merchant", choice: "sell", item: i.id }));
       card.appendChild(b);
       sellBox.appendChild(card);
@@ -691,6 +967,7 @@ export function renderAll(onAction) {
   renderHUD();
   renderEnemies();
   renderPack(onAction);
+  renderSidePanel(onAction);
   renderMerchant(onAction);
   renderNpc(onAction);
   renderCommands(onAction);
@@ -704,7 +981,8 @@ export function setBusy(busy) {
   // 随身面板的丢弃/修理小按钮同理：renderPack 在 busy=true 时渲染，
   // 漏恢复会让丢弃按钮永远点不了（玩家看起来就是"按钮被挡住了"）。
   const buttons = document.querySelectorAll(
-    "#cmd-buttons .btn, #merchant .mch-btn, #npc .mch-btn, .pack-item .pack-drop, .pack-item .pack-fix"
+    "#cmd-buttons .btn, #merchant .mch-btn, #npc .mch-btn, .pack-item .pack-drop, .pack-item .pack-fix, " +
+    ".side-cell .pack-drop, .side-cell .pack-fix"
   );
   buttons.forEach((b) => { b.disabled = busy; });
 }

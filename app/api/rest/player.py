@@ -5,12 +5,12 @@ MVP 无注册无密码：client_id 即身份（前端 localStorage 里的 UUID�
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ...ai.name_filter import check_name
 from ...db import repo
 from ...deps import client_id_from, db_call
-from ...schemas.models import HelloIn, HelloOut, NameIn
+from ...schemas.models import HelloIn, HelloOut, NameIn, RedeemIn
 
 router = APIRouter(prefix="/api/player", tags=["player"])
 
@@ -98,3 +98,34 @@ async def set_name(body: NameIn, client_id: str = Depends(client_id_from)) -> di
     if not player:
         return {"ok": False, "reason": "玩家不存在"}
     return {"ok": True, "name": player["name"]}
+
+
+@router.post("/redeem")
+async def redeem(body: RedeemIn, client_id: str = Depends(client_id_from)) -> dict:
+    """核销继承码：把码绑定的旧档案合并进当前身份（一次性）。
+
+    码无效/已用/来源不存在 → 400；成功返回合并后的档案摘要。
+    若当前身份有 active run 则拒绝——接档案不该发生在局中。
+    """
+    active = await db_call(repo.runs.get_active, client_id)
+    if active:
+        raise HTTPException(status_code=409, detail="本局还没结束，先打完再来接档案")
+    player = await db_call(repo.inherit.redeem, body.code, client_id)
+    if not player:
+        raise HTTPException(status_code=400, detail="继承码无效或已被使用")
+    return {
+        "ok": True,
+        "name": player["name"],
+        "best_depth": player["best_depth"],
+        "best_score": player["best_score"],
+        "escapes": player["escapes"],
+        "region_progress": player.get("region_progress", 0),
+        "has_legacy": bool(player.get("legacy_item")),
+    }
+
+
+@router.get("/inherit_codes")
+async def inherit_codes(client_id: str = Depends(client_id_from)) -> dict:
+    """我名下的继承码（撤离后弹窗展示 / 事后找回）。"""
+    codes = await db_call(repo.inherit.list_for_player, client_id)
+    return {"codes": codes}

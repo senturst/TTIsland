@@ -74,6 +74,13 @@ def apply(cfg: GameConfig, state: dict, talent: dict) -> None:
     if mods.get("hp_max"):
         state["hp_max"] += int(mods["hp_max"])
         state["hp"] += int(mods["hp_max"])
+    # 开局携带类：当场发物品（绕过 _acquire 的溢出暂停——开局在地下室，
+    # 溢出由 bag_overflow 正常兜底即可；这里用 loot.grant 直塞）
+    # 修复：此前 start_items 只有开局基线物资消费这个键，天赋里的
+    # start_items（如快速凝血的 2 绷带）从未发放过。
+    from . import loot as _loot
+    for iid, qty in mods.get("start_items") or []:
+        _loot.grant(cfg, state, iid, int(qty))
 
 
 # --- 聚合读取 ------------------------------------------------------------

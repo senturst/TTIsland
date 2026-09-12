@@ -115,13 +115,13 @@ boss:
   name: 暴君 T-03
   room_name: 撤离点
   guards_evac: true
-  # 制造噪音引开：噪音 ≥ threshold 时 Boss 有 chance 概率离开撤离点 lure_turns 回合。
-  # 暴君经过 T 病毒强化，并不完全受噪音支配——可能甩头原地不动（lure 失败，
-  # 本回合不消耗，玩家可以再试或改打）。此前无判定时 lure 是免费通行证，
-  # 修复震荡 bug 后 L5 通过率从 0% 直窜 67%（目标 45%）。
+  # 引开机制已整体下线（用户拍板）：暴君必须正面击杀，没有绕过选项。
+  # 此前 success_chance 0.65 的噪音引开让 L5 通过率虚高，撤离段失去威胁。
+  # lure: 配置保留但引擎不再消费（_act_lure 直接拒绝，按钮不再暴露）。
   lure:
     noise_threshold: 9
     lure_turns: 3
-    success_chance: 0.65
+    success_chance: 0.0
+    enabled: false
   encounter_text: 它站在停机坪中央，像是在等什么。或者说，像是在守什么。
   kill_text: 庞大的身躯终于倒下。你跨过它，走向直升机。

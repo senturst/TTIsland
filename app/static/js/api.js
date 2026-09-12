@@ -49,4 +49,8 @@ export const api = {
   notifications: () => request("/api/notifications"),
   markNotifications: (ids) =>
     request("/api/notifications/read", { method: "POST", body: ids }),
+  // 继承码：撤离后展示名下码；新设备输入码接回旧档案
+  inheritCodes: () => request("/api/player/inherit_codes"),
+  redeem: (code) =>
+    request("/api/player/redeem", { method: "POST", body: { code } }),
 };

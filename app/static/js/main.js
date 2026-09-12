@@ -113,7 +113,26 @@ async function consume(data) {
       b.addEventListener("click", () => startRun());
       btn.appendChild(b);
     }
+    // 撤离成功：展示继承码。玩家身份是浏览器本地 UUID，清缓存/换设备 =
+    // 进度丢失；码可在新设备接回档案（一次性核销，防分享共用）。
+    if (state.status === "escaped") {
+      showInheritCode(host);
+    }
   }
+}
+
+/** 撤离成功后拉取并展示继承码（失效静默——不阻塞结算画面）。 */
+async function showInheritCode(host) {
+  try {
+    const data = await api.inheritCodes();
+    const latest = (data.codes || []).find((c) => !c.used_by);
+    if (latest) {
+      appendLine(host, `继承码：${latest.code}`, "sys");
+      appendLine(host,
+        "把它记下来。换设备或清缓存后，在开场界面输入这个码就能接回你的档案（只能用一次）。",
+        "sys");
+    }
+  } catch { /* 拉不到码不阻塞结算 */ }
 }
 
 /* ------------------------------------------------------------------ */
@@ -182,6 +201,26 @@ function dispatchHotkey(rawKey) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 右侧滑出面板（装备/物品格）：点边缘把手滑出，✕ 或再点把手收起。
+ * 面板内容由 renderAll → renderSidePanel 持续刷新，这里只管开合。 */
+function setupSidePanel() {
+  const panel = document.getElementById("side-panel");
+  const toggle = document.getElementById("side-toggle");
+  const close = document.getElementById("side-close");
+  if (!panel || !toggle) return;
+
+  const setOpen = (open) => {
+    panel.classList.toggle("open", open);
+    panel.setAttribute("aria-hidden", open ? "false" : "true");
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  toggle.addEventListener("click", () =>
+    setOpen(!panel.classList.contains("open"))
+  );
+  close?.addEventListener("click", () => setOpen(false));
+}
+
+/* ------------------------------------------------------------------ */
 /* 世界事件 SSE：只订阅"重大事件"广播（死亡/撤离/破纪录），不做聊天。
    收到后更新顶部播报条 + 世界面板的实时列表。 */
 let worldEventBuffer = [];
@@ -234,6 +273,69 @@ function setupWorldPanel() {
       tab.classList.add("active");
       refreshLeaderboard(tab.dataset.board);
     });
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/** 继承码弹窗：换设备/清缓存后接回旧档案（一次性核销）。 */
+function promptRedeem() {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("redeem-overlay");
+    const input = document.getElementById("redeem-input");
+    const err = document.getElementById("redeem-err");
+    const ok = document.getElementById("redeem-confirm");
+    const cancel = document.getElementById("redeem-cancel");
+    if (!overlay || !input || !ok) { resolve(null); return; }
+
+    overlay.classList.remove("hidden");
+    input.value = "";
+    err.classList.add("hidden");
+    input.focus();
+
+    const showErr = (m) => { err.textContent = m; err.classList.remove("hidden"); };
+    const cleanup = () => {
+      ok.removeEventListener("click", done);
+      cancel.removeEventListener("click", giveup);
+      input.removeEventListener("keydown", onKey);
+    };
+    const done = async () => {
+      const code = input.value.trim().toUpperCase();
+      if (!code) { showErr("先输入继承码"); return; }
+      ok.disabled = true;
+      try {
+        const data = await api.redeem(code);
+        overlay.classList.add("hidden");
+        resolve(data);
+      } catch (e) {
+        showErr(e.message || "继承码无效或已被使用");
+      } finally {
+        ok.disabled = false;
+      }
+    };
+    const giveup = () => { overlay.classList.add("hidden"); resolve(null); };
+    const onKey = (e) => { if (e.key === "Enter") done(); };
+    ok.addEventListener("click", done);
+    cancel.addEventListener("click", giveup);
+    input.addEventListener("keydown", onKey);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) { overlay.classList.add("hidden"); resolve(null); }
+    });
+  });
+}
+
+/** boot 时的可选入口：按 R 或点提示即可输入继承码（不强制）。 */
+function setupRedeemEntry(statusNode) {
+  const hint = document.createElement("div");
+  hint.style.cssText = "margin-top:12px;font-size:12px;opacity:.7;";
+  hint.innerHTML = '有继承码？<button class="btn btn-ghost" id="btn-redeem" type="button" style="padding:2px 10px;">在这里输入</button>';
+  statusNode.parentElement?.appendChild(hint) ||
+    document.getElementById("boot")?.appendChild(hint);
+  document.getElementById("btn-redeem")?.addEventListener("click", async () => {
+    const res = await promptRedeem();
+    if (res) {
+      statusNode.textContent = `档案已接回：${res.name}（最深 ${res.best_depth} 层）`;
+      setTimeout(() => location.reload(), 1200);
+    }
   });
 }
 
@@ -343,6 +445,7 @@ async function boot() {
 
   try {
     statusNode.textContent = "校验身份…";
+    setupRedeemEntry(statusNode);
     const hello = await api.hello();
     let playerName = hello.player?.name;
     if (hello.needs_name) {
@@ -372,6 +475,7 @@ async function boot() {
 
     setupSSE();
     setupWorldPanel();
+    setupSidePanel();
 
     statusNode.textContent = "恢复进度…";
     const resumed = await resume();

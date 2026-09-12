@@ -190,6 +190,7 @@ merchant:
   repair:
     scrap_per_point: 0.3          # 每 1 废料修 3 点耐久（0.3/点，余数舍弃）
     cash_per_point: 0.5           # 每 1 现金修 2 点耐久（与废料二选一）
+    tape_points: 2                # 每 1 胶带修 2 点耐久（胶带=应急补，固定点数不吃单价换算）
     target: both                  # both=修近战武器与护甲；melee_only=只修近战
 
   # ---- 铺货模板：固定 1 武器位 / 1 装备位（护甲或背包）/ 1 背包位 / 3 其他位 ----
@@ -205,6 +206,10 @@ merchant:
                wedding_ring, dog_tag, photo]
   # 卖出价 = 物品 value × sell_ratio（向下取整，至少 1）
   sell_ratio: 0.5
+  # 收购门槛：武器/护甲耐久低于总耐久该比例时拒收（0 耐久必拒）。
+  # 防止"把打空的装备全卖给商人"变成无本废品回收生意；想修好再卖去修。
+  # 无耐久概念的物品（纪念品/材料等）不受此门槛约束。
+  min_durability_ratio: 0.5
 
   # ---- 作者怜悯：极低概率触发，仅普通商人；玩家免费任选一件 ----
   authors_mercy_chance: 0.01      # 默认 1%

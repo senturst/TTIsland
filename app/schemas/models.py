@@ -16,6 +16,11 @@ class NameIn(BaseModel):
     name: str
 
 
+class RedeemIn(BaseModel):
+    """继承码核销：把码绑定的来源档案合并进当前 client_id。"""
+    code: str
+
+
 class HelloOut(BaseModel):
     client_id: str
     player: dict[str, Any]
@@ -41,7 +46,11 @@ class ActionOut(BaseModel):
     legacy_blocked: list[str] = Field(default_factory=list)
     pending_decision: str | None = None
     talent_options: list[dict[str, Any]] = Field(default_factory=list)
-    talent: dict[str, Any] | None = None
+    # P7 后 talents.summary() 返回列表（多天赋叠加）；这里放任意结构只做透传。
+    # 此前声明 dict 导致开局停在天赋三选一时（尚未选、summary 返回 []）直接 500。
+    talent: Any = None
+    talents: list[dict[str, Any]] = Field(default_factory=list)
+    xp: dict[str, Any] | None = None
     ai_degraded: bool = False
 
 
@@ -58,7 +67,10 @@ class StartOut(BaseModel):
     icons: dict[str, str] = Field(default_factory=dict)
     pending_decision: str | None = None
     talent_options: list[dict[str, Any]] = Field(default_factory=list)
-    talent: dict[str, Any] | None = None
+    # 同 ActionOut.talent：summary 现在返回列表，不能声明成 dict
+    talent: Any = None
+    talents: list[dict[str, Any]] = Field(default_factory=list)
+    xp: dict[str, Any] | None = None
     ai_degraded: bool = False
 
 

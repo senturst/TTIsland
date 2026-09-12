@@ -243,6 +243,176 @@ def test_merchant_sell_rejects_after_same_item_sold():
     asyncio.run(run())
 
 
+def test_merchant_sell_rejects_low_durability_gear():
+    """商人耐久门槛：武器/护甲耐久低于总耐久 50%（可配）拒收，0 耐久必拒。
+
+    边界：恰好等于 50% 可收（"< 50% 才拒"）；无耐久概念的物品不受约束。
+    """
+    cfg = get_config()
+    ratio_cfg = float(
+        cfg.balance.get("merchant", {}).get("min_durability_ratio", 0.5)
+    )
+    assert ratio_cfg == 0.5, "配置默认门槛应为 0.5"
+
+    async def run():
+        eng = await _new_run(cfg)
+        m = _enter_merchant_room(eng)
+        m["shop"] = [{"id": "crowbar", "cost": 5, "value": 8, "kind": "weapon"}]
+        maxd = int(cfg.item("crowbar").get("durability", 0) or 0)
+        assert maxd == 20, "测试基线：crowbar 总耐久 20"
+
+        # ---- 0 耐久：必拒 ----
+        loot.grant(cfg, eng.state, "crowbar", 1, durability=0)
+        loot.grant(cfg, eng.state, "cash", 0)
+        await eng._act_merchant({"choice": "sell", "item": "crowbar"})
+        assert any("磨损太厉害" in line for line in eng._out), eng._out
+        assert loot.count(eng.state, "crowbar") == 1, "0 耐久拒收，物品应还在包里"
+        assert loot.count(eng.state, "cash") == 0, "拒收不应给钱"
+
+        # ---- 49%（9/20）：拒 ----
+        eng._out.clear()
+        e = next(e for e in eng.state["inventory"] if e["id"] == "crowbar")
+        e["durability"] = 9
+        await eng._act_merchant({"choice": "sell", "item": "crowbar"})
+        assert any("磨损太厉害" in line for line in eng._out), eng._out
+        assert loot.count(eng.state, "crowbar") == 1, "49% 拒收"
+
+        # ---- 50%（10/20）：可收（边界：低于才拒）----
+        eng._out.clear()
+        e["durability"] = 10
+        await eng._act_merchant({"choice": "sell", "item": "crowbar"})
+        assert any("卖了" in line for line in eng._out), eng._out
+        assert loot.count(eng.state, "crowbar") == 0, "50% 应正常成交"
+        assert loot.count(eng.state, "cash") > 0, "50% 成交应换得现金"
+
+        # ---- 护甲同理：riot_gear 45 耐久，22/45≈48.9% 拒 ----
+        eng._out.clear()
+        m2 = _enter_merchant_room(eng)
+        m2["shop"] = [{"id": "riot_gear", "cost": 5, "value": 10, "kind": "armor"}]
+        loot.grant(cfg, eng.state, "riot_gear", 1, durability=22)
+        await eng._act_merchant({"choice": "sell", "item": "riot_gear"})
+        assert any("磨损太厉害" in line for line in eng._out), eng._out
+        assert loot.count(eng.state, "riot_gear") == 1, "护甲低耐久也应拒收"
+
+        # ---- 无耐久概念的纪念品不受门槛约束 ----
+        eng._out.clear()
+        loot.grant(cfg, eng.state, "dog_tag", 1)
+        await eng._act_merchant({"choice": "sell", "item": "dog_tag"})
+        assert any("卖了" in line for line in eng._out), eng._out
+        assert loot.count(eng.state, "dog_tag") == 0, "纪念品无耐久概念，应正常成交"
+
+    asyncio.run(run())
+
+
+def test_merchant_sell_rejected_flag_exposed():
+    """_response 应为低耐久装备标注 sell_rejected，前端据此禁用出售按钮。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        _enter_merchant_room(eng)
+        loot.grant(cfg, eng.state, "crowbar", 1, durability=5)  # 25% < 50%
+        loot.grant(cfg, eng.state, "dog_tag", 1)
+
+        resp = eng._response()
+        inv = {e["id"]: e for e in resp["state"]["inventory"]}
+        assert inv["crowbar"]["sell_rejected"] is True, "低耐久武器应标拒收"
+        assert inv["crowbar"]["sell"] is not None, "预估价保留（展示用）"
+        assert inv["dog_tag"]["sell_rejected"] is False, "纪念品不受门槛约束"
+
+    asyncio.run(run())
+
+
+def test_backpack_auto_equip_on_acquire():
+    """捡到背包自动装备：无背包直接装；有背包且更大自动换（旧的回包）；更小不动。
+
+    修复前：捡到背包先占一格，常常恰好把背包顶过上限、被迫先丢东西——
+    而丢的最佳选项往往就是刚捡的背包本身。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["backpack"] = None
+
+        # 无背包 → 捡到自动装备
+        eng._acquire("small_pack", 1)
+        assert st["backpack"] and st["backpack"]["id"] == "small_pack", "无背包应自动装备"
+        assert loot.count(st, "small_pack") == 0, "装备后不应留在包里"
+
+        # 更大的 → 自动换，旧的回背包
+        eng._acquire("large_pack", 1)
+        assert st["backpack"]["id"] == "large_pack", "更大应自动换装"
+        assert loot.count(st, "small_pack") == 1, "旧背包应回到背包里"
+        assert eng._bag_cap() == 8 + 8, "基础 8 + 战术包 8"
+
+        # 更小的 → 留在包里不抢装
+        eng._acquire("small_pack", 1)
+        assert st["backpack"]["id"] == "large_pack", "更小的不应抢装"
+        assert loot.count(st, "small_pack") == 2, "小背包应留在包里"
+
+    asyncio.run(run())
+
+
+def test_bag_overflow_use_action():
+    """背包溢出决策：消耗品提供「用了」代替白扔；用完仍超载则决策继续。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["backpack"] = None
+        st["hp"] = 10
+        # 基础容量 8 + 自带 2 条目 → 塞 8 件武器（不可堆叠）= 10 条目 > 8
+        for _ in range(8):
+            eng._acquire("crowbar", 1, durability=20)
+        assert st["pending_decision"] == "bag_overflow", "应触发溢出决策"
+
+        acts = eng._available_actions()
+        use_acts = [a for a in acts if a["id"] == "use"]
+        assert use_acts and any(a["item"] == "bandage" for a in use_acts), \
+            "溢出界面应有绷带的「用了」按钮"
+
+        n_before = loot.count(st, "bandage")
+        hp_before = st["hp"]
+        await eng.act("use", {"item": "bandage"})
+        assert loot.count(st, "bandage") == n_before - 1, "使用应消耗 1 绷带"
+        assert st["hp"] > hp_before, "绷带应回血"
+        assert st["pending_decision"] == "bag_overflow", "仍超载时决策应保持"
+
+        # 丢到容量内 → 决策解除
+        while st["pending_decision"] == "bag_overflow":
+            await eng.act("discard", {"choice": "drop", "item": "crowbar"})
+        assert st["pending_decision"] is None
+        assert len(st["inventory"]) == eng._bag_cap()
+
+    asyncio.run(run())
+
+
+def test_armor_durability_exposed():
+    """佩戴中的护甲耐久应下发前端（此前只有名字，玩家看不到磨损）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        eng._acquire("bike_helmet", 1)
+        await eng.act("equip", {"item": "bike_helmet"})
+        st["armor"]["durability"] = 13  # 模拟磨损 13/25
+
+        resp = eng._response()["state"]
+        assert resp["armor"]["name"] == "自行车头盔"
+        assert resp["armor"]["durability"] == 13, "应下发剩余耐久"
+        assert resp["armor"]["max_durability"] == 25, "应下发总耐久"
+        assert any(
+            r["id"] == "bike_helmet" and r["cur"] == 13
+            for r in resp["repair_options"]
+        ), "残血护甲应进入修理选项"
+
+    asyncio.run(run())
+
+
 def test_merchant_plagued_full_price_when_low():
     """感染商人：血量低于门槛（默认 25%）仍可交易，但按原价（value）且不抽血。"""
     cfg = get_config()
@@ -507,6 +677,16 @@ if __name__ == "__main__":
     print("✓ 感染商人每次成交都抽血")
     test_merchant_sell_rejects_after_same_item_sold()
     print("✓ 同款商品槽成交后拒收第二件")
+    test_merchant_sell_rejects_low_durability_gear()
+    print("✓ 低耐久武器/护甲商人拒收（0/49%/50% 边界 + 纪念品豁免）")
+    test_merchant_sell_rejected_flag_exposed()
+    print("✓ sell_rejected 标记暴露给前端")
+    test_backpack_auto_equip_on_acquire()
+    print("✓ 捡到背包自动装备/自动换更大")
+    test_bag_overflow_use_action()
+    print("✓ 溢出决策消耗品可「用了」+ 丢弃解除")
+    test_armor_durability_exposed()
+    print("✓ 佩戴中护甲耐久下发（自行车头盔问题）")
     test_merchant_closes_after_trade_on_reentry()
     print("✓ 成交后离开房间商人收摊（防双向边回刷）")
     test_merchant_plagued_full_price_when_low()

@@ -106,12 +106,18 @@ monsters:
     name: 守门者
     icon: "🗿"
     <<: *base
-    hp: 14
-    dmg: [2, 4]
-    acc: 50
+    # 精英守门怪（不可逃跑必须打赢）：数值须高于普通怪（ghoul 20血/4-6伤/62命中），
+    # 否则"单挑守门人"比被杂兵围殴还轻松。强度以"比 ghoul 高一档、
+    # 不至于把各层通过率砸穿"为准：sim n=400 验证撤离率 ~8-9%（基线 9.5%）。
+    hp: 20
+    dmg: [4, 6]
+    acc: 62
     eva: 5
-    speed: 5
+    armor: 1
+    speed: 6
     archetype: brute
+    bite_chance: 0.28
+    bite_infection: [4, 7]
     elite: true               # 楼梯口守卫：不可逃跑，必须消灭才能下楼
     score: 40
     xp: 30

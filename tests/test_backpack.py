@@ -87,9 +87,9 @@ def test_acquire_over_cap_still_grants_and_blocks():
         _fill_to_cap(eng, cfg)
         cap = eng._bag_cap()
 
-        ok = eng._acquire("hiking_pack", 1)  # 全新非堆叠
+        ok = eng._acquire("crowbar", 1, durability=20)  # 全新非堆叠（背包类会自动装备，不适用本用例）
         assert ok, "先拿后丢：获取应总是成功"
-        assert loot.count(eng.state, "hiking_pack") == 1, "应已直接入包"
+        assert loot.count(eng.state, "crowbar") == 1, "应已直接入包"
         assert len(eng.state["inventory"]) == cap + 1, "允许暂时超上限"
         assert eng.state["pending_decision"] == "bag_overflow", "超上限应触发决策"
         assert eng.state.get("bag_pending") is None, "不应再有暂存待拾取物"
@@ -105,13 +105,13 @@ def test_discard_back_to_cap_releases_decision():
         eng = await _new_run(cfg)
         eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         _fill_to_cap(eng, cfg)
-        eng._acquire("hiking_pack", 1)
+        eng._acquire("crowbar", 1, durability=20)  # 背包类会自动装备，换非背包物品
         assert eng.state["pending_decision"] == "bag_overflow"
 
         await eng._act_discard({"choice": "drop", "item": "small_pack"})
 
         assert eng.state["pending_decision"] is None, "回到容量内应解除决策"
-        assert loot.count(eng.state, "hiking_pack") == 1, "先拿的物品保留在包里"
+        assert loot.count(eng.state, "crowbar") == 1, "先拿的物品保留在包里"
         assert len(eng.state["inventory"]) == eng._bag_cap(), "丢 1 拿 1 仍是满格"
 
     asyncio.run(run())
@@ -125,13 +125,13 @@ def test_discard_skip_keeps_blocking():
         eng = await _new_run(cfg)
         eng.state["talents"] = []  # 隔离随机天赋（packrat 会 +5；P7 后读 talents 列表）
         _fill_to_cap(eng, cfg)
-        eng._acquire("hiking_pack", 1)
+        eng._acquire("crowbar", 1, durability=20)  # 背包类会自动装备，换非背包物品
         assert eng.state["pending_decision"] == "bag_overflow"
 
         await eng._act_discard({"choice": "skip"})
 
         assert eng.state["pending_decision"] == "bag_overflow", "skip 应继续阻断"
-        assert loot.count(eng.state, "hiking_pack") == 1, "先拿的物品不被没收"
+        assert loot.count(eng.state, "crowbar") == 1, "先拿的物品不被没收"
 
     asyncio.run(run())
 

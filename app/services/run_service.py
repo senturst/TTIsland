@@ -1214,8 +1214,12 @@ class RunEngine:
             # 选一件带走 / 什么都不拿 都复用 _act_grave 的处理
             await self._act_grave(payload)
         elif decision == "bag_overflow":
-            # 背包超载：丢弃物品回到容量以内（先拿后丢模型的强制清理）
-            await self._act_discard(payload)
+            # 背包超载：丢弃物品回到容量以内（先拿后丢模型的强制清理）。
+            # 消耗品允许"用了"代替"丢了"——能用掉的就不该逼玩家白扔。
+            if action == "use":
+                await self._act_use(payload)
+            else:
+                await self._act_discard(payload)
 
         self.persist_rng()
         return self._response()
@@ -1521,17 +1525,47 @@ class RunEngine:
     def _acquire(self, item_id: str, qty: int = 1, durability: int | None = None) -> bool:
         """入包的唯一入口：先拿后丢——总是直接 grant（允许暂时超上限），
         超了就暂停为 bag_overflow 决策。返回是否成功入包。
-        现金走独立计数，不占格、永不触发超载。"""
+        现金走独立计数，不占格、永不触发超载。
+        捡到背包类物品自动装备：没背包装上；有背包且新的更大也自动换——
+        否则玩家捡到背包反而先被"超上限丢东西"逼着做无意义决策。"""
         st = self.state
         if item_id == "cash":
             loot.grant(self.cfg, st, "cash", qty)
             return True
         loot.grant(self.cfg, st, item_id, qty, durability)
+        if (
+            qty >= 1
+            and self.cfg.item_kind(item_id) == "backpack"
+        ):
+            self._auto_equip_backpack(item_id)
         if self._over_capacity():
             name = self.cfg.item(item_id)["name"]
             self._log(f"你硬把 {name} 塞了进去——背包超载了，得丢掉一些东西才能继续。")
             self._check_bag_overflow()
         return True
+
+    def _auto_equip_backpack(self, item_id: str) -> None:
+        """捡到背包的自动装备规则：
+        * 身上没有背包 → 直接装上（容量净增，不可能溢出）
+        * 已有背包且新的 slots 更大 → 换上，旧背包回背包（容量只增不减）
+        * 同样大或更小 → 留在包里由玩家自己决定（避免抢走"留着送人/卖钱"的选择）"""
+        st = self.state
+        new_slots = int(self.cfg.item(item_id).get("slots", 0))
+        cur = st.get("backpack")
+        if not cur or not cur.get("id"):
+            st["backpack"] = {"id": item_id}
+            loot.remove(st, item_id, 1)
+            self._log(f"你顺手把{self.cfg.item(item_id)['name']}背上了。（容量 +{new_slots}）")
+            return
+        cur_slots = int(self.cfg.item(cur["id"]).get("slots", 0))
+        if new_slots > cur_slots:
+            st["backpack"] = {"id": item_id}
+            loot.remove(st, item_id, 1)
+            loot.grant(self.cfg, st, cur["id"], 1)
+            self._log(
+                f"你换上了更大的{self.cfg.item(item_id)['name']}，"
+                f"{self.cfg.item(cur['id'])['name']}收进了背包。（容量 {cur_slots}→{new_slots}）"
+            )
 
     def _grave_take(self, uid: str) -> None:
         """从尸体上带走一件：先拿后丢——直接入包，超上限则暂停为 bag_overflow。"""
@@ -1800,8 +1834,18 @@ class RunEngine:
             self._log("** 你变强了。**")
 
     def _settle_levelups(self) -> None:
-        """战斗清空后结算待处理的升级：弹出三选一（一次弹一个，选完再弹）。"""
+        """战斗清空后结算待处理的升级：弹出三选一（一次弹一个，选完再弹）。
+
+        L5（撤离层）不弹：都打到撤离点了，击杀暴君的意义就是"能上直升机"，
+        撤离前再涨一级天赋改变不了什么，反而打乱"撤离=满状态收官"的节奏。
+        待处理的升级计数清零（XP/等级照常累计，只是不触发抽取）。
+        """
         st = self.state
+        if st["depth"] >= self.cfg.max_level and st.get("boss_alive") is False:
+            if int(st.get("pending_levelups", 0)) > 0:
+                st["pending_levelups"] = 0
+                self._log("你已经站在撤离点了——现在想这些没什么用。")
+            return
         if int(st.get("pending_levelups", 0)) <= 0:
             return
         if st.get("pending_decision"):  # 已有别的决策在排队
@@ -1966,6 +2010,45 @@ class RunEngine:
             self._check_bag_overflow()
         else:
             self._log("这东西不能装备。")
+
+    async def _act_unequip(self, payload: dict) -> None:
+        """卸下已装备的武器/护甲/背包，放回背包。超容量走 bag_overflow 兜底。
+
+        卸背包/护甲会缩水容量——缩水导致超载时同样暂停为 bag_overflow。
+        手上没武器（空手）时"卸下"只是回到空手，不产生任何条目。
+        """
+        st = self.state
+        slot = payload.get("slot")
+        if slot == "weapon":
+            w = st.get("weapon")
+            if not w or not w.get("id"):
+                self._log("你手上本来就空着。")
+                return
+            loot.grant(self.cfg, st, w["id"], 1, w.get("durability"))
+            st["weapon"] = None
+            self._log(f"你收起了{self.cfg.item(w['id'])['name']}。")
+        elif slot == "armor":
+            a = st.get("armor")
+            if not a or not a.get("id"):
+                self._log("你身上没穿护甲。")
+                return
+            loot.grant(self.cfg, st, a["id"], 1, a.get("durability"))
+            st["armor"] = None
+            self._log(f"你脱下了{self.cfg.item(a['id'])['name']}。")
+            # 脱甲缩水容量（口袋消失）→ 溢出则暂停
+            self._check_bag_overflow()
+        elif slot == "backpack":
+            bp = st.get("backpack")
+            if not bp or not bp.get("id"):
+                self._log("你本来就没背背包。")
+                return
+            loot.grant(self.cfg, st, bp["id"], 1)
+            st["backpack"] = None
+            self._log(f"你放下了{self.cfg.item(bp['id'])['name']}。")
+            # 卸背包缩水容量 → 溢出则暂停
+            self._check_bag_overflow()
+        else:
+            self._log("没这个槽位可卸。")
 
     async def _act_event(self, payload: dict) -> None:
         st = self.state
@@ -2139,6 +2222,13 @@ class RunEngine:
             return None
 
         if iid:
+            # 前端随身面板的手持/穿戴条目用占位 id（__held_weapon__ 等），
+            # 按槽位映射到真实物品——否则"修手上的消防斧"永远匹配不到。
+            if iid == "__held_weapon__":
+                iid = (st.get("weapon") or {}).get("id")
+            elif iid == "__held_armor__":
+                iid = (st.get("armor") or {}).get("id")
+        if iid:
             if st.get("weapon", {}).get("id") == iid:
                 r = _check(st["weapon"], iid)
                 if r:
@@ -2190,13 +2280,20 @@ class RunEngine:
             return 1, max(1, int(1 / per))
         return math.ceil(per), 1
 
-    def _do_repair(self, iid: str, pay: str) -> tuple[bool, str]:
-        """用废铁或现金修理一件装备，每次点击消耗 1 份资源、修 floor(1/per) 点耐久。
+    def _tape_points(self) -> int:
+        """胶带修理量：每个胶带修几点（balance.merchant.repair.tape_points，默认 2）。"""
+        return int(
+            self.cfg.balance.get("merchant", {}).get("repair", {}).get("tape_points", 2)
+        )
 
-        pay ∈ {"scrap","cash"}。1 废料可修 3 点耐久（0.3/点，余数舍弃）；
-        1 现金修 2 点（0.5/点）。天赋 repair_bonus 让一次多修几点。
-        玩家可以反复点，一点一点把武器修满——不再强制一次修到满。
-        非商人区域也可用（前端从随身面板对废料装备发起，走同一入口）。
+    def _do_repair(self, iid: str, pay: str) -> tuple[bool, str]:
+        """用废铁/现金/胶带修理一件装备，每次点击消耗 1 份资源修几点耐久。
+
+        pay ∈ {"scrap","cash","tape"}。1 废料修 3 点（0.3/点，余数舍弃）；
+        1 现金修 2 点（0.5/点）；1 胶带修 2 点（固定点数，胶带是"应急补"的定位）。
+        天赋 repair_bonus 让一次多修几点。玩家可以反复点，一点一点把武器修满——
+        不再强制一次修到满。非商人区域也可用（前端从随身面板对废料装备发起，
+        走同一入口）。
         """
         st = self.state
         cfg = self.cfg
@@ -2206,13 +2303,20 @@ class RunEngine:
         obj, wid, maxd, cur = tgt
         (scrap_per, cash_per), bonus = self._repair_rates()
         if pay == "scrap":
-            per, cur_res, res_name = scrap_per, loot.count(st, "scrap"), "废料"
+            cur_res, res_name = loot.count(st, "scrap"), "废料"
+        elif pay == "tape":
+            cur_res, res_name = loot.count(st, "duct_tape"), "胶带"
         else:
-            per, cur_res, res_name = cash_per, loot.count(st, "cash"), "现金"
+            cur_res, res_name = loot.count(st, "cash"), "现金"
 
         # 这次修几点：整份资源的换算点数 + 天赋奖励；不超过缺失量（零头浪费）
         missing = maxd - cur
-        base_cost, base_points = self._repair_click(per)
+        if pay == "tape":
+            base_cost, base_points = 1, self._tape_points()
+        else:
+            base_cost, base_points = self._repair_click(
+                scrap_per if pay == "scrap" else cash_per
+            )
         cost = base_cost
         points = min(base_points + int(bonus), missing)
         if cur_res < cost or points <= 0:
@@ -2220,7 +2324,8 @@ class RunEngine:
                 f"{res_name}不够——修 1 次要 {cost} {res_name}"
                 f"（你只有 {cur_res}）。"
             )
-        loot.remove(st, "scrap" if pay == "scrap" else "cash", cost)
+        res_id = {"scrap": "scrap", "tape": "duct_tape", "cash": "cash"}[pay]
+        loot.remove(st, res_id, cost)
         obj["durability"] = cur + points
         return True, (
             f"你用 {cost} {res_name} 把{cfg.item(wid)['name']}修了 {points} 点耐久"
@@ -2237,6 +2342,7 @@ class RunEngine:
         (scrap_per, cash_per), _bonus = self._repair_rates()
         scrap_cost, scrap_pts = self._repair_click(scrap_per)
         cash_cost, cash_pts = self._repair_click(cash_per)
+        tape_pts = self._tape_points()
         out: list[dict] = []
         # 当前装备优先，再扫背包里的武器/护甲
         candidates = []
@@ -2259,11 +2365,12 @@ class RunEngine:
                     "kind": cfg.item_kind(iid),
                     "max": maxd,
                     "cur": cur,
-                    # 每次点击的（消耗, 修几点）：1 废料修 3 点，1 现金修 2 点
+                    # 每次点击的（消耗, 修几点）：1 废料修 3 点，1 现金/胶带修 2 点
                     "scrap_cost": scrap_cost,
                     "cash_cost": cash_cost,
                     "scrap_points": scrap_pts,
                     "cash_points": cash_pts,
+                    "tape_points": tape_pts,
                 })
         return out
 
@@ -2277,6 +2384,7 @@ class RunEngine:
             "cash_cost": cash_cost,
             "scrap_points": scrap_pts,
             "cash_points": cash_pts,
+            "tape_points": self._tape_points(),
         }
 
     async def _act_merchant(self, payload: dict) -> None:
@@ -2369,6 +2477,26 @@ class RunEngine:
             if any(s["id"] == iid and s.get("sold") for s in m.get("shop", [])):
                 self._log("它的货架上这件已经有主了，不收第二件。")
                 return
+            # 耐久门槛：武器/护甲低于总耐久一定比例（默认 50%）拒收——
+            # 0 耐久必拒，防止"把打空的装备全卖给商人"变成无本废品回收。
+            # 上限以配置 durability 为准（与修理同一权威来源）；无耐久概念
+            # 的物品（纪念品/材料等）不受约束。背包里同名装备不合并，取第一件。
+            maxd = int(cfg.item(iid).get("durability", 0) or 0)
+            if kind in ("weapon", "armor") and maxd > 0:
+                min_ratio = float(
+                    cfg.balance.get("merchant", {}).get("min_durability_ratio", 0.5)
+                )
+                entry = next(
+                    (e for e in st["inventory"] if e["id"] == iid), None
+                )
+                cur = int(entry.get("durability") or 0) if entry else 0
+                if cur / maxd < min_ratio:
+                    pct = int(min_ratio * 100)
+                    self._log(
+                        f"它掂了掂{cfg.item(iid)['name']}直摇头：磨损太厉害了，"
+                        f"修到 {pct}% 以上再来卖。"
+                    )
+                    return
             value = int(cfg.item(iid).get("value", 1))
             ratio = float(cfg.balance.get("merchant", {}).get("sell_ratio", 0.7))
             price = max(1, int(round(value * ratio)))
@@ -2474,62 +2602,18 @@ class RunEngine:
         raise RunEnded("escaped")
 
     async def _act_lure(self, payload: dict) -> None:
-        """制造噪音引开 Boss。"""
+        """制造噪音引开 Boss——已下线：暴君对噪音免疫，必须正面击杀。
+
+        保留方法仅为老存档兼容（旧客户端可能还有按钮）；直接说明并消耗回合。
+        """
         st = self.state
         if not st.get("boss_alive"):
             self._log("它已经不在了。")
             return
-        if not st.get("boss_seen"):
-            self._log("你还不知道它在哪。")
-            return
-        threshold = int(self.cfg.levels_cfg["boss"]["lure"]["noise_threshold"])
-        turns = int(self.cfg.levels_cfg["boss"]["lure"]["lure_turns"])
-        chance = float(self.cfg.levels_cfg["boss"]["lure"].get("success_chance", 1.0))
-        need = max(0, threshold - noise.value(st))
-        if need > 0:
-            # noise.add 返回增量，noise.add 内部已写入 st["noise"]——
-            # 此前把增量覆写回 st["noise"] 造成噪音震荡、永远到不了阈值（潜伏 bug）。
-            noise.add(self.cfg, st, need)
-            self._log(f"你砸碎了身边的玻璃，用力敲打栏杆。（噪音 +{need}）")
-        else:
-            self._log("噪音已经够了。")
-        if noise.value(st) >= threshold:
-            # 无论 need 是多少（首次堆满、还是 Boss 战里噪音已在阈值上）都要过
-            # success_chance——否则残血玩家进 Boss 战后 noise 保持 ≥threshold，
-            # need=0 无限白嫖重试，失败代价就没了。
-            if not self.rng.chance(chance):
-                # 暴君不完全受噪音支配：它循声转过来——冲着你来了。
-                # 失败代价 = 立刻进入 Boss 战（而不是白耗一回合后免费重试：
-                # 那样失败毫无成本，撤离层倒计时 42 根本不紧，lure 依旧通行证）。
-                # 真实抉择是：要么硬拼杀出去，要么赌下一次判定再引开它。
-                # 注意：一旦进过 Boss 战，本层不再允许 lure——否则战斗中
-                # 反复 lure 期望成功率≈1（1-(1-p)^k），lure 又成通行证。
-                st["boss_lure_spent"] = True
-                boss_id = self.cfg.levels_cfg["boss"]["id"]
-                enemies = combat.spawn_encounter(self.cfg, self.rng, st["depth"], boss=True)
-                st["combat"] = {"enemies": enemies, "round": 0}
-                st["in_combat"] = True
-                st["boss_seen"] = True
-                self._log(
-                    "它顿了一下，头颅缓缓转向你——然后径直朝你走来。"
-                    "噪音对它没用，它要的是安静。"
-                )
-                return
-            st["boss_lured"] = turns
-            st["boss_alive"] = False
-            st["in_combat"] = False
-            st["combat"] = {"enemies": [], "round": 0}
-            self._log("它循着声音转过身，慢慢走开了。撤离点空出来了。")
-            # 制造的噪音同样会引来尸潮（阈值 8 < lure 阈值 9）：引开暴君的代价是
-            # 在尸潮围上来前冲向直升机。别处每次 noise.add 都跟着 _check_horde，
-            # 唯独这里漏了——补上，让 lure 成为高风险抉择而非免费通行证。
-            if self._check_horde():
-                self._log("但那些噪音也把别的东西引来了……")
-                st["in_combat"] = True
-                st["combat"] = {
-                    "enemies": combat.spawn_horde(self.cfg, self.rng, st["depth"]),
-                    "round": 0,
-                }
+        self._log(
+            "你砸碎玻璃、用力敲打栏杆——它连头都没回。"
+            "噪音对它毫无意义。想过去，只有从它身上踏过去这一条路。"
+        )
 
     async def _act_status(self, payload: dict) -> None:
         st = self.state
@@ -2713,10 +2797,21 @@ class RunEngine:
 
         inventory = []
         _sell_ratio = float(self.cfg.balance.get("merchant", {}).get("sell_ratio", 0.7))
+        _min_dur_ratio = float(
+            self.cfg.balance.get("merchant", {}).get("min_durability_ratio", 0.5)
+        )
         for e in st["inventory"]:
             item = self.cfg.item(e["id"])
             kind = self.cfg.item_kind(e["id"])
             sellable = kind not in ("ammo", "consumable") and e["id"] != "cash"
+            # 商人耐久门槛预判：武器/护甲低于比例上限时前端标"拒收"（预估价保留，
+            # 但出售按钮禁用），0 耐久必拒。无耐久概念的物品不受约束。
+            _dur_rejected = False
+            if sellable and kind in ("weapon", "armor"):
+                _maxd = int(item.get("durability", 0) or 0)
+                if _maxd > 0:
+                    _cur = int(e.get("durability") or 0)
+                    _dur_rejected = _cur / _maxd < _min_dur_ratio
             inventory.append({
                 "id": e["id"],
                 "name": item["name"],
@@ -2728,6 +2823,8 @@ class RunEngine:
                 "desc": _item_desc(item, kind),
                 # 可出售类道具的预估回收价，前端直接展示，不必自己读配置
                 "sell": max(1, int(round(int(item.get("value", 1)) * _sell_ratio))) if sellable else None,
+                # 耐久低于商人门槛 → 出售按钮禁用并标注拒收原因
+                "sell_rejected": _dur_rejected,
             })
 
         lmap = st.get("level_map", {})
@@ -2766,7 +2863,18 @@ class RunEngine:
                     "ranged": bool(wcfg and wcfg.get("kind") == "ranged"),
                     "desc": _item_desc(wcfg, "weapon") if wcfg else None,
                 },
-                "armor": self.cfg.item(st["armor"]["id"])["name"] if st.get("armor") else None,
+                # 护甲：名字 + 剩余耐久 + 总耐久。此前只下发名字，玩家看不到
+                # 护甲磨损（自行车头盔明明在掉耐久却像永远满的）。
+                "armor": (
+                    {
+                        "name": self.cfg.item(st["armor"]["id"])["name"],
+                        "durability": (st["armor"] or {}).get("durability"),
+                        "max_durability": int(
+                            self.cfg.item(st["armor"]["id"]).get("durability", 0) or 0
+                        ),
+                    }
+                    if st.get("armor") else None
+                ),
                 "armor_desc": (
                     _item_desc(self.cfg.item(st["armor"]["id"]), "armor", self._armor_absorb_pct())
                     if st.get("armor") else None
@@ -2786,6 +2894,7 @@ class RunEngine:
                 # 现金独立计数：不进背包；旧局背包里的现金条目向下兼容并入显示
                 "cash": loot.count(st, "cash"),
                 "scrap": loot.count(st, "scrap"),
+                "tape": loot.count(st, "duct_tape"),
                 # 修理换算提示：每次修 1 点耐久的单价（向上取整）
                 "repair_rates": self._repair_rate_hints(),
                 "inventory": inventory,
@@ -2942,12 +3051,30 @@ class RunEngine:
             ] + [{"id": "grave", "label": "什么都不拿", "choice": "skip", "kind": "ghost"}]
 
         if st.get("pending_decision") == "bag_overflow":
-            # 背包超载（先拿后丢 / 换装缩水）：必须丢到容量以内，无"放弃"选项
-            return [
-                {"id": "discard", "label": f"丢掉：{self.cfg.item(it['id'])['name']}",
-                 "choice": "drop", "item": it["id"], "kind": "danger"}
-                for it in st["inventory"]
-            ]
+            # 背包超载（先拿后丢 / 换装缩水）：必须丢到容量以内，无"放弃"选项。
+            # 消耗品多给一个"用了"——能用掉的就不用白扔；用完仍超载则决策继续。
+            acts: list[dict] = []
+            for it in st["inventory"]:
+                acts.append({
+                    "id": "discard",
+                    "label": f"丢掉：{self.cfg.item(it['id'])['name']}",
+                    "choice": "drop", "item": it["id"], "kind": "danger",
+                })
+            usable_ids = []
+            for it in st["inventory"]:
+                if (
+                    it["qty"] > 0
+                    and self.cfg.item_kind(it["id"]) == "consumable"
+                    and it["id"] not in usable_ids
+                ):
+                    usable_ids.append(it["id"])
+            for uid in usable_ids:
+                acts.append({
+                    "id": "use",
+                    "label": f"用了：{self.cfg.item(uid)['name']}",
+                    "item": uid, "kind": "safe",
+                })
+            return acts
 
         # 没有待决策、且本局已结束 —— 这才是真正的"无事可做"
         if st["status"] != "active":
@@ -2959,18 +3086,10 @@ class RunEngine:
         room = mapgen.current_room(st["level_map"])
         r = st["room"]
 
-        # Boss 的"引开"必须**即使正在交战**也可用。
-        # 这一条放在 in_combat 的提前返回之前——否则玩家一旦被拖进 Boss 战，
-        # 就只能硬拼到死，而"制造噪音引开绕行"这个设计意图永远用不上。
-        # 例外：本层 lure 已失败过一次（boss_lure_spent）——暴君已经识破噪音，
-        # 战斗中反复 lure 的期望成功率≈1，必须封死，否则它又成了通行证。
-        if (
-            st.get("boss_alive")
-            and st.get("boss_seen")          # 得先真的碰上它，不能隔空引开
-            and st.get("boss_lured", 0) <= 0
-            and not st.get("boss_lure_spent")
-        ):
-            acts.append({"id": "lure", "label": "制造噪音引开它", "kind": "danger"})
+        # Boss 的"引开"已整体下线（用户拍板）：暴君必须正面击杀。
+        # 撤离段的威胁被噪音引开消解得太彻底，L5 名存实亡。
+        # 保留 _act_lure 只为老存档兼容（按钮不暴露、调用直接拒绝）。
+        # 原战斗中 lure 的例外逻辑一并作废——进 Boss 战后只能硬拼。
 
         if st.get("in_combat"):
             acts.append({"id": "attack", "label": "攻击", "kind": "danger"})

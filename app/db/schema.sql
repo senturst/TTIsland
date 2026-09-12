@@ -94,3 +94,17 @@ CREATE INDEX IF NOT EXISTS idx_notif_player ON notifications(player_id, read, cr
 CREATE INDEX IF NOT EXISTS idx_graves_pick   ON graves(claim_count, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_graves_player ON graves(player_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_graves_level  ON graves(level, claim_count);
+
+-- 继承码（v7）：撤离成功后发放的一次性恢复码。
+-- 玩家身份是 localStorage 的 UUID，清缓存/换设备 = 6 小时挂机清理后进度全丢。
+-- 继承码让玩家在新 client_id 上接回旧档案；码只能核销一次（防分享共用）。
+-- 用掉码 = 把 from_player 的档案（名字/统计/遗物/地区进度）复制到 to_player。
+CREATE TABLE IF NOT EXISTS inherit_codes (
+    code         TEXT PRIMARY KEY,             -- 继承码（TT-XXXX-XXXX 格式）
+    from_player  TEXT NOT NULL,                -- 发码时的玩家档案（来源）
+    created_at   INTEGER NOT NULL,
+    used_by      TEXT,                         -- 核销者（新 client_id）；NULL=未用
+    used_at      INTEGER,
+    run_id       TEXT                          -- 发码来源的 run（溯源）
+);
+CREATE INDEX IF NOT EXISTS idx_inherit_from ON inherit_codes(from_player);
