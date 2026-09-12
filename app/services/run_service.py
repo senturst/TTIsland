@@ -1724,12 +1724,12 @@ class RunEngine:
             self._log(f"你扣住扳机扫射，{wcfg['name']}倾泻出 {shots} 发弹药！")
             fired = 0
             for e in ordered:
+                # 全部发数倾泻在当前目标身上，倒下才顺延下一个
+                while fired < shots and e["hp"] > 0:
+                    await self._player_hit_one(e, pp, ranged, shot_meta)
+                    fired += 1
                 if fired >= shots:
                     break
-                if e["hp"] <= 0:
-                    continue
-                await self._player_hit_one(e, pp, ranged, shot_meta)
-                fired += 1
         else:
             target = payload.get("target")
             enemy = enemies[0]
