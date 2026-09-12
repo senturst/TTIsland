@@ -50,8 +50,11 @@ def _enter_merchant_room(eng, plagued=False):
     # 直接走引擎的进房铺货逻辑（plagued 概率设为 0 得到普通商人）
     eng._enter_merchant(room)
     if plagued:
-        eng.state["room"]["merchant"]["type"] = "plagued"
-        eng.state["room"]["merchant"]["discount"] = 0.5
+        m = eng.state["room"]["merchant"]
+        m["type"] = "plagued"
+        m["toll_hp"] = 20
+        m["discount"] = 0.5
+        m["toll_armed"] = False
     return eng.state["room"]["merchant"]
 
 
@@ -114,13 +117,13 @@ def test_merchant_buy_spends_cash():
         eng = await _new_run(cfg)
         loot.grant(cfg, eng.state, "cash", 10)
         m = _enter_merchant_room(eng)
-        # 注入一个已知价货架条目（cost 走现金），避免依赖随机铺货
-        m["shop"] = [{"id": "bandage", "cost": 2, "value": 3, "kind": "consumable"}]
+        # 注入一个已知价货架条目（新机制：按 value 结算），避免依赖随机铺货
+        m["shop"] = [{"id": "bandage", "cost": 3, "value": 3, "kind": "consumable"}]
         before = loot.count(eng.state, "cash")
 
         await eng._act_merchant({"choice": "buy", "item": "bandage"})
         after = loot.count(eng.state, "cash")
-        assert after == before - 2, f"买绷带应耗 2 现金，实际 {before}→{after}"
+        assert after == before - 3, f"买绷带应耗 3 现金，实际 {before}→{after}"
         assert loot.count(eng.state, "bandage") >= 1, "应买到绷带"
 
     asyncio.run(run())
@@ -171,55 +174,101 @@ def test_merchant_sell_grants_cash():
     asyncio.run(run())
 
 
-def test_merchant_plagued_min_hp_and_hp_cost():
-    """感染商人：血量 ≥ 25%（可配）最大生命可折扣交易，**每次成交都抽走「缺失的血量」**。"""
+def test_plagued_toll_pays_hp_and_half_price_once():
+    """感染商人血税：上交 20 生命 → 下一件半价（一次性），第二件回原价。"""
     cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        # 25/40 = 62.5% ≥ 25% 门槛：可交易，首次抽走缺失的 15 点
-        eng.state["hp"] = 25
-        eng.state["hp_max"] = 40
+        st = eng.state
+        st["hp"] = 30
+        st["hp_max"] = 40
         m = _enter_merchant_room(eng, plagued=True)
-        m["shop"] = [{"id": "bandage", "cost": 2, "value": 3, "kind": "consumable"}]
-        loot.grant(cfg, eng.state, "cash", 10)
+        m["shop"] = [
+            {"id": "bandage", "cost": 3, "value": 3, "kind": "consumable"},
+            {"id": "canned", "cost": 3, "value": 3, "kind": "consumable"},
+        ]
+        loot.grant(cfg, st, "cash", 10)
 
+        # 上交血税
+        await eng._act_merchant({"choice": "toll"})
+        assert st["hp"] == 10, f"应上交 20 点（30→10），实际 {st['hp']}"
+        assert m["toll_armed"] is True, "上交后应武装半价"
+        # 出售不经手（没有血液消耗的断言点在 full_price 旧用例位置）
+        # 半价买第一件
         await eng._act_merchant({"choice": "buy", "item": "bandage"})
-        assert any("缺的血全抽走" in line for line in eng._out), eng._out
-        assert eng.state["hp"] == 10, f"应抽走缺失的 15 点（25→10），实际 {eng.state['hp']}"
-        assert loot.count(eng.state, "cash") == 8, "应按折扣价扣现金"
-        # 开局自带 1 个 bandage，买 1 个后应为 2
-        assert loot.count(eng.state, "bandage") == 2, "应买到 1 个 bandage"
-
-        # 第二次购买同款 → 已易主，无法再买（每商品只成交一次）
-        await eng._act_merchant({"choice": "buy", "item": "bandage"})
-        assert any("易主" in line for line in eng._out), eng._out
-        assert loot.count(eng.state, "bandage") == 2, "已售商品不能回购"
+        assert loot.count(st, "cash") == 8, "半价应扣 ceil(3×0.5)=2"
+        assert m["toll_armed"] is False, "半价一次性，买完即失效"
+        assert loot.count(st, "bandage") == 2, "应买到 1 个 bandage"
+        # 第二件回原价
+        await eng._act_merchant({"choice": "buy", "item": "canned"})
+        assert loot.count(st, "cash") == 5, "无血税应按原价 3 扣款"
 
     asyncio.run(run())
 
 
-def test_merchant_plagued_hp_drains_every_trade():
-    """感染商人：每次成交都抽血（血是折扣的持续成本，不是一次性门票）。"""
+def test_plagued_no_toll_full_price_and_no_blood_loss():
+    """不上交血税：按原价购买，生命值纹丝不动（旧的成交抽血机制已废弃）。"""
     cfg = get_config()
 
     async def run():
         eng = await _new_run(cfg)
-        eng.state["hp"] = 30
-        eng.state["hp_max"] = 40  # 75% ≥ 25% 门槛
+        st = eng.state
+        st["hp"] = 25
+        st["hp_max"] = 40
         m = _enter_merchant_room(eng, plagued=True)
-        # 两件不同商品，逐个买
-        m["shop"] = [
-            {"id": "bandage", "cost": 2, "value": 3, "kind": "consumable"},
-            {"id": "canned", "cost": 2, "value": 3, "kind": "consumable"},
-        ]
-        loot.grant(cfg, eng.state, "cash", 10)
+        m["shop"] = [{"id": "bandage", "cost": 3, "value": 3, "kind": "consumable"}]
+        loot.grant(cfg, st, "cash", 10)
 
         await eng._act_merchant({"choice": "buy", "item": "bandage"})
-        assert eng.state["hp"] == 20, f"第一次成交应抽 10 点（30→20），实际 {eng.state['hp']}"
-        await eng._act_merchant({"choice": "buy", "item": "canned"})
-        # 规则是「抽走全部缺失血量」：hp=20 时缺失 20 点 → 抽到只剩 1
-        assert eng.state["hp"] == 1, f"第二次成交应抽到只剩 1（20→1），实际 {eng.state['hp']}"
+        assert st["hp"] == 25, "无血税不应扣血"
+        assert loot.count(st, "cash") == 7, "应按原价 3 扣款"
+        assert loot.count(st, "bandage") == 2
+
+        # 出售也不抽血（活扳手 t1 近战，可卖）
+        loot.grant(cfg, st, "wrench", 1)
+        await eng._act_merchant({"choice": "sell", "item": "wrench"})
+        assert st["hp"] == 25, "出售不应扣血"
+
+    asyncio.run(run())
+
+
+def test_plagued_toll_insufficient_hp():
+    """血量不超过 toll_hp 时拒绝上交（付完至少留 1 点）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["hp"] = 20
+        st["hp_max"] = 40
+        m = _enter_merchant_room(eng, plagued=True)
+
+        await eng._act_merchant({"choice": "toll"})
+        assert st["hp"] == 20, "血不够不应扣"
+        assert m["toll_armed"] is False, "不应武装半价"
+        assert any("不够" in line for line in eng._out), eng._out
+
+    asyncio.run(run())
+
+
+def test_plagued_toll_low_hp_still_trades_full_price():
+    """低血量玩家不上交也能正常原价交易（旧『血量不过半按原价』的门槛机制废弃）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["hp"] = 5
+        st["hp_max"] = 40  # 12.5%——旧机制此处会转"原价+不抽血"，新机制无门槛概念
+        m = _enter_merchant_room(eng, plagued=True)
+        m["shop"] = [{"id": "bandage", "cost": 3, "value": 3, "kind": "consumable"}]
+        loot.grant(cfg, st, "cash", 10)
+
+        await eng._act_merchant({"choice": "buy", "item": "bandage"})
+        assert st["hp"] == 5, "不应扣血"
+        assert loot.count(st, "cash") == 7, "原价 3 扣款"
+        assert loot.count(st, "bandage") == 2
 
     asyncio.run(run())
 
@@ -417,27 +466,6 @@ def test_armor_durability_exposed():
             r["id"] == "bike_helmet" and r["cur"] == 13
             for r in resp["repair_options"]
         ), "残血护甲应进入修理选项"
-
-    asyncio.run(run())
-
-
-def test_merchant_plagued_full_price_when_low():
-    """感染商人：血量低于门槛（默认 25%）仍可交易，但按原价（value）且不抽血。"""
-    cfg = get_config()
-
-    async def run():
-        eng = await _new_run(cfg)
-        eng.state["hp"] = 5
-        eng.state["hp_max"] = 40  # 12.5% < 25% 门槛
-        m = _enter_merchant_room(eng, plagued=True)
-        m["shop"] = [{"id": "bandage", "cost": 2, "value": 5, "kind": "consumable"}]
-        loot.grant(cfg, eng.state, "cash", 20)
-
-        await eng._act_merchant({"choice": "buy", "item": "bandage"})
-        assert any("按原价" in line for line in eng._out), eng._out
-        assert loot.count(eng.state, "cash") == 15, "应按原价 5 扣款（20-5=15）"
-        assert loot.count(eng.state, "bandage") == 2, "应买到 1 个 bandage"
-        assert eng.state["hp"] == 5, "原价交易不应抽血"
 
     asyncio.run(run())
 
@@ -718,10 +746,14 @@ if __name__ == "__main__":
     print("✓ 商人面板状态（merchant/repair_options）正确暴露")
     test_merchant_sell_grants_cash()
     print("✓ 出售道具换现金")
-    test_merchant_plagued_min_hp_and_hp_cost()
-    print("✓ 感染商人折扣交易抽走缺失血量 + 已售商品不可回购")
-    test_merchant_plagued_hp_drains_every_trade()
-    print("✓ 感染商人每次成交都抽血")
+    test_plagued_toll_pays_hp_and_half_price_once()
+    print("✓ 感染商人血税：上交20生命→下一件半价（一次性）")
+    test_plagued_no_toll_full_price_and_no_blood_loss()
+    print("✓ 感染商人不上交：原价交易零扣血（旧抽血机制废弃）")
+    test_plagued_toll_insufficient_hp()
+    print("✓ 血量不足拒绝上交")
+    test_plagued_toll_low_hp_still_trades_full_price()
+    print("✓ 低血量原价交易（门槛机制废弃）")
     test_merchant_sell_rejects_after_same_item_sold()
     print("✓ 同款商品槽成交后拒收第二件")
     test_merchant_sell_rejects_low_durability_gear()
@@ -736,8 +768,6 @@ if __name__ == "__main__":
     print("✓ 佩戴中护甲耐久下发（自行车头盔问题）")
     test_merchant_closes_after_trade_on_reentry()
     print("✓ 成交后离开房间商人收摊（防双向边回刷）")
-    test_merchant_plagued_full_price_when_low()
-    print("✓ 感染商人血量不过半按原价交易")
     test_grave_pick_ranged_weapon()
     print("✓ 墓碑可拾取远程武器")
     test_grave_pool_eligibility()

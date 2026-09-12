@@ -415,21 +415,21 @@ trinkets:
     icon: "💍"
     score: 15
     weight: 12
-    value: 20
+    value: 15
     desc_ai: true
   - id: dog_tag
     name: 身份牌
     icon: "🪪"
-    score: 15
+    score: 12
     weight: 12
-    value: 20
+    value: 12
     desc_ai: true
   - id: photo
     name: 全家福
     icon: "📷"
-    score: 15
+    score: 10
     weight: 12
-    value: 20
+    value: 10
     desc_ai: true
 
 backpacks:

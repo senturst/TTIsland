@@ -238,6 +238,7 @@ class RunEngine:
             "boss_lured": 0,
             "boss_lure_spent": False,
             "campfire_used": False,
+            "first_combat_done": False,
             "pending_decision": None,
             "legacy_choices": None,
             # P7 升级系统（本局内成长，死亡清零）
@@ -653,6 +654,12 @@ class RunEngine:
         enemies = combat.spawn_encounter(
             self.cfg, self.rng, st["depth"], bonus=int(room.get("enemy_bonus", 0) or 0)
         )
+        # 开局 mercy（用户反馈"出门老撞 3 只"）：本局第一场遭遇固定 1 只。
+        # 实测第一战数量本就是 [1,3] 均匀分布，并非固定 3——这是印象性平衡，
+        # 用确定性规则把它钉死。
+        if not st.get("first_combat_done"):
+            enemies = enemies[:1]
+        st["first_combat_done"] = True
         if st.get("horde"):
             enemies += combat.spawn_horde(self.cfg, self.rng, st["depth"])
 
@@ -697,8 +704,11 @@ class RunEngine:
             "text": ev["text"],
             "choices": [{"id": c["id"], "label": c["label"]} for c in ev["choices"]],
         }
-        vibe = st["log"][-1] if st["log"] else ""
-        self._log(f"   事件：{ev['text'].replace('{ai_desc}', vibe.rstrip('。') or '四周一片死寂')}")
+        # 文本去重：氛围文（vibe）已在进门行打印过（"事件点。<vibe>"），
+        # 事件行不再织入 {ai_desc}——否则同一段描写会连续出现两遍。
+        # 8 个事件模板均为 "{ai_desc}。<增量>" 形式，去掉后语法成立。
+        text = ev["text"].replace("{ai_desc}", "").lstrip("。").strip()
+        self._log(f"   事件：{text}")
 
     def _enter_grave(self, room: dict) -> None:
         """墓碑/遗骸房间（P4：注入其他玩家的真实尸体）。
@@ -1083,30 +1093,33 @@ class RunEngine:
             return
 
         mcfg = self.cfg.balance.get("merchant", {})
-        plagued_chance = float(mcfg.get("plagued", {}).get("spawn_chance", 0))
+        pcfg = mcfg.get("plagued", {})
+        plagued_chance = float(pcfg.get("spawn_chance", 0))
         is_plagued = bool(plagued_chance and self.rng.chance(plagued_chance))
-        discount = 1.0
-        if is_plagued:
-            discount = float(mcfg.get("plagued", {}).get("discount", 0.5))
 
         mercy = (not is_plagued) and bool(
             mcfg.get("authors_mercy_chance", 0)
             and self.rng.chance(float(mcfg["authors_mercy_chance"]))
         )
 
-        shop = self._roll_shop(mcfg, discount)
-        st["room"]["merchant"] = {
+        # 感染商人：商店按**原价**铺货——半价要靠上交生命解锁（一次性）
+        shop = self._roll_shop(mcfg, 1.0)
+        m = {
             "type": "plagued" if is_plagued else "normal",
-            "discount": discount,
             "authors_mercy": mercy,
             "mercy_taken": False,
             "shop": shop,
         }
+        if is_plagued:
+            m["toll_hp"] = int(pcfg.get("toll_hp", 20))
+            m["discount"] = float(pcfg.get("discount", 0.5))
+            m["toll_armed"] = False
+        st["room"]["merchant"] = m
 
         if is_plagued:
             self._log(
                 "一个浑身溃烂的身影挡在路中间，皮肤下有什么在蠕动："
-                "「想活命？拿你的命来换。」（血量过半即可交易，成交时你缺多少血它抽多少）"
+                f"「想活命？拿你的命来换。」（上交 {m['toll_hp']} 点生命，换取一次半价）"
             )
         else:
             self._log("他摊开一块破布，上面零零碎碎全是货：「废铁换命，懂？」")
@@ -1175,6 +1188,8 @@ class RunEngine:
                         await self._tick_hazard()
                     for line in level_rules.tick_turn(self.cfg, st):
                         self._log(line)
+                    # 主题 tick 可能直改感染（L3 病毒培养区每回合 +1）——同步生命上限
+                    self._sync_hp_max()
                     if st.get("evac_countdown") is not None and st["evac_countdown"] <= 0:
                         await self._die("错过了撤离")
         except RunEnded as e:
@@ -2287,11 +2302,12 @@ class RunEngine:
             elif iid == "__held_armor__":
                 iid = (st.get("armor") or {}).get("id")
         if iid:
-            if st.get("weapon", {}).get("id") == iid:
+            if (st.get("weapon") or {}).get("id") == iid:
                 r = _check(st["weapon"], iid)
                 if r:
                     return r
-            if st.get("armor", {}).get("id") == iid:
+            # armor 可能为 None（卖出/卸下后残留的修理按钮 id）——不可用 {} 兜底
+            if (st.get("armor") or {}).get("id") == iid:
                 r = _check(st["armor"], iid)
                 if r:
                     return r
@@ -2302,10 +2318,10 @@ class RunEngine:
                         return r
             return None
 
-        r = _check(st.get("weapon"), st.get("weapon", {}).get("id"))
+        r = _check(st.get("weapon"), (st.get("weapon") or {}).get("id"))
         if r:
             return r
-        r = _check(st.get("armor"), st.get("armor", {}).get("id"))
+        r = _check(st.get("armor"), (st.get("armor") or {}).get("id"))
         if r:
             return r
         for e in st["inventory"]:
@@ -2480,28 +2496,39 @@ class RunEngine:
             self._log("你冲商人点了点头，继续往前走。")
             return
 
+        # 感染商人「血税」：不是成交——不标记 merchant_traded（付了血转身走，
+        # 优惠留在房间里，回头还能用）。成交标记只属于买/卖/修理/怜悯。
+        if choice == "toll":
+            if m["type"] != "plagued":
+                self._log("它不是那种商人。")
+                return
+            if m.get("toll_armed"):
+                self._log("你已经付过血了——它舔着嘴唇等你挑货。")
+                return
+            toll = int(m.get("toll_hp", 20))
+            if st["hp"] <= toll:
+                self._log(f"你的血不够它要的数（需要 {toll} 点以上）。")
+                return
+            st["hp"] -= toll
+            m["toll_armed"] = True
+            self._log(
+                f"你割开手掌，血顺着它的指缝往下滴。（HP −{toll}）"
+                "它满意地嘶笑：「下一件货，半价。」"
+            )
+            return
+
         # 任何成交（买/卖/修理/怜悯）后标记：玩家离开房间时商人收摊。
         # 防双向边"成交→出门→再进来"无限刷。实际置 resolved 在 _act_move 离开时。
         st["room"]["merchant_traded"] = True
 
-        # 感染商人规则：
-        #   血量 ≥ 50%（可配）最大生命 → 享受折扣价，**每次成交都抽走「缺失的血量」**
-        #   （只扣一次太便宜——玩家可以把血当货币反复换折扣）；
-        #   血量不过半 → 仍可交易，但按原价（无折扣）、不抽血。
-        #   折扣只在 shop 生成时应用，因此原价 = entry["value"]，现价 = entry["cost"]。
-        full_price = False
+        # 感染商人规则（用户拍板重做）：
+        #   上交 toll_hp 生命 → **下一次购买**半价（一次性，用掉可再交）。
+        #   商店按原价铺货；没有门槛、没有每笔抽血、没有"原价惩罚"。
         if m["type"] == "plagued":
-            threshold = st["hp_max"] * float(
-                cfg.balance.get("merchant", {}).get("plagued", {}).get("min_hp_pct", 0.5)
-            )
-            if st["hp"] < threshold:
-                full_price = True
-                self._log("它盯着你失血的手臂嘶笑：这个状态没资格讲价——按原价来。")
-            else:
-                hp_cost = max(1, st["hp_max"] - st["hp"])
-                st["hp"] = max(1, st["hp"] - hp_cost)
-                self._log(f"它伸手按在你胸口，把你缺的血全抽走了。（HP −{hp_cost}）")
-        m["_full_price"] = full_price
+            toll = int(m.get("toll_hp", 20))
+            discount = float(m.get("discount", 0.5))
+        else:
+            toll, discount = 0, 1.0
 
         if choice == "repair":
             iid = payload.get("item")
@@ -2519,8 +2546,12 @@ class RunEngine:
             if entry.get("sold"):
                 self._log("那件货已经易主了。")
                 return
-            # 感染商人血量不过半时按原价（value）；正常折扣价 = cost
-            cost = int(entry["value"]) if m.get("_full_price") else int(entry["cost"])
+            # 感染商人：上交过血税 → 下一件半价（一次性，用掉即失效）
+            cost = int(entry["value"])
+            if m["type"] == "plagued" and m.get("toll_armed"):
+                cost = max(1, math.ceil(cost * discount))
+                m["toll_armed"] = False
+                self._log("它按着你还在渗血的手掌收了货款：这件，半价。")
             if loot.count(st, "cash") < cost:
                 self._log(
                     f"现金不够——{cfg.item(iid)['name']} 要 {cost}，你只有 {loot.count(st, 'cash')}。"
@@ -2980,11 +3011,11 @@ class RunEngine:
                 "merchant": (
                     {
                         "type": m["type"],
-                        "discount": round(m.get("discount", 1.0), 2),
                         "authors_mercy": bool(m.get("authors_mercy")),
                         "mercy_taken": bool(m.get("mercy_taken")),
-                        # 感染商人血量不过半：可交易但按原价（无折扣、不抽血）
-                        "full_price": bool(m.get("_full_price")),
+                        # 感染商人血税：上交 toll_hp 生命 → 下一件购买半价（一次性）
+                        "toll_hp": m.get("toll_hp"),
+                        "toll_armed": bool(m.get("toll_armed")),
                         "shop": [
                             {
                                 "id": s["id"],

@@ -791,10 +791,10 @@ export function renderMerchant(onAction) {
   }
   if (note) {
     const bits = [];
-    if (m.discount && m.discount < 1) bits.push(`全部 ${Math.round(m.discount * 100)}% 折扣`);
     if (m.authors_mercy && !m.mercy_taken) bits.push("今天他破例送你一件");
-    if (m.full_price) bits.push("⚠ 血量不过半：无折扣按原价交易，不抽血");
-    else if (m.type === "plagued") bits.push("成交时你缺多少血它抽多少");
+    if (m.type === "plagued") {
+      bits.push(m.toll_armed ? "🩸 已上交：下一件购买半价" : `上交 ${m.toll_hp ?? 20} 点生命，换取一次半价`);
+    }
     note.textContent = bits.join(" · ");
   }
 
@@ -805,30 +805,52 @@ export function renderMerchant(onAction) {
     leaveBtn.onclick = () => onAction({ id: "merchant", choice: "leave" });
   }
 
-  const fullPrice = !!m.full_price;
+  const armed = !!m.toll_armed && m.type === "plagued";
+  const disc = m.type === "plagued" ? (m.discount ?? 0.5) : 1;
   const cash = state.cash ?? 0;
   const scrap = state.scrap ?? 0;
 
+  // ---- 血税：感染商人特有（上交生命 → 下一件半价） ----
   // ---- 货架：买 / 作者怜悯 ----
   const shopBox = document.getElementById("merchant-shop");
   if (shopBox) {
     shopBox.innerHTML = "";
+    if (m.type === "plagued") {
+      const toll = document.createElement("div");
+      toll.className = "mch-card";
+      const canPay = (state.hp ?? 0) > (m.toll_hp ?? 20);
+      toll.innerHTML =
+        `<span class="mch-name">🩸 血税</span>` +
+        `<span class="mch-desc">上交 ${m.toll_hp ?? 20} 点生命值，换取下一次购买半价（一次性）</span>`;
+      const tb = document.createElement("button");
+      tb.type = "button";
+      tb.className = "btn btn-primary mch-btn";
+      tb.textContent = armed ? "已上交：下一件半价" : `上交 ${m.toll_hp ?? 20} 生命`;
+      tb.disabled = armed || !canPay || state.busy;
+      tb.title = armed ? "下一件购买享半价" : (!canPay ? "血不够它要的数" : "");
+      tb.addEventListener("click", () => onAction({ id: "merchant", choice: "toll" }));
+      toll.appendChild(tb);
+      shopBox.appendChild(toll);
+    }
     if (!m.shop.length) {
-      shopBox.innerHTML = `<span class="pack-empty">空空如也</span>`;
+      const none = document.createElement("span");
+      none.className = "pack-empty";
+      none.textContent = "空空如也";
+      shopBox.appendChild(none);
     }
     for (const s of m.shop) {
       const card = document.createElement("div");
       card.className = "mch-card";
-      // full_price 时按原价（value）出售；正常显示折扣价 cost
-      const price = fullPrice ? s.value : s.cost;
+      // armed 时下一件半价：显示与结算一致（服务端按 value×discount 结算）
+      const price = armed ? Math.max(1, Math.ceil(s.value * disc)) : s.value;
       const canAfford = cash >= price;
       const mercyItem = m.authors_mercy && !m.mercy_taken;
       const soldOut = !!s.sold;
       const priceNote = soldOut
         ? `已售出`
-        : fullPrice
-          ? `原价 💰 ${s.value}（无折扣）`
-          : `💰 ${s.cost}${s.value !== s.cost ? `（值 ${s.value}）` : ""}`;
+        : armed
+          ? `血税半价 💰 ${price}（值 ${s.value}）`
+          : `💰 ${s.value}`;
       card.innerHTML =
         `<span class="mch-name">${iconFor(s.id) || "📦"} ${s.name}</span>` +
         `<span class="mch-desc">${s.desc || ""}</span>` +
@@ -854,7 +876,7 @@ export function renderMerchant(onAction) {
         b.className = "btn btn-primary mch-btn";
         b.textContent = "购买";
         b.disabled = !canAfford || state.busy;
-        b.title = cash < price ? "现金不够" : (fullPrice ? "血量不过半，按原价交易" : "");
+        b.title = cash < price ? "现金不够" : "";
         b.addEventListener("click", () => onAction({ id: "merchant", choice: "buy", item: s.id }));
         card.appendChild(b);
       }

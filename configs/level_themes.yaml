@@ -38,13 +38,13 @@ levels:
     subtitle: 负一层 · 断电
     brief: 应急灯早就没电了。你的手电是唯一光源，而电池不会自己长出来。
     mechanism: 手电电量
-    mechanism_desc: 电量初始 100。每探索一房 −8，战斗每回合 −2。归零后命中 −25、遭遇率 ×1.5、无法搜刮。
+    mechanism_desc: 电量初始 100。每探索一房 −4，战斗每回合 −2。归零后命中 −25、遭遇率 ×1.5、无法搜刮。
     entry_text: 井盖在你身后合上。黑暗像水一样漫过来，你拧亮了手电。
     exit_text: 通风管道的另一头传来消毒水的味道。是医院。
     modifiers:
       flashlight_enabled: true
       flashlight_start: 100
-      flashlight_cost_per_room: 8
+      flashlight_cost_per_room: 4
       flashlight_cost_per_turn: 2
       flashlight_dead_acc_penalty: -25
       flashlight_dead_encounter_mult: 1.5
@@ -61,13 +61,14 @@ levels:
     subtitle: 二层 · 病毒培养区
     brief: 这里曾是最后一个还在运转的地方。也正因如此，这里的空气最脏。
     mechanism: 高危污染区
-    mechanism_desc: 30% 的房间是高危区，进入 +8 感染，但医疗掉落 ×3。要不要赌，取决于你的抗生素还剩几支。
+    mechanism_desc: 30% 的房间是高危区，进入 +8 感染，但医疗掉落 ×3。整个楼层每回合 +1 感染——培养区的空气本身就在侵蚀你。要不要赌，取决于你的抗生素还剩几支。
     entry_text: 走廊两侧堆着来不及运走的尸袋。墙上的指示牌还亮着一点微光。
     exit_text: 你从医院后门出来，正对着商场的卸货区。
     modifiers:
       hazmat_room_chance: 0.30
       hazmat_infection: 8
       hazmat_medical_bonus: 3
+      infection_per_turn: 1
     on_enter_level: {}
     zombie_density: 0.88
     hooks: [hazmat_zone]

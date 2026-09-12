@@ -305,6 +305,66 @@ def test_mapgen_can_produce_new_rooms():
     assert seen & {"nest", "hazard"}, f"120 层样本应出现新房型，实际 {sorted(seen)}"
 
 
+def test_hospital_infection_per_turn():
+    """L3 中心医院：每个玩家行动 tick +1 感染（infection_per_turn 主题键）。
+
+    医院加压（用户拍板：旧版只有 hazmat 房太弱）；环境感染走 core 直加
+    （不吃 infection_taken_mult，与 hazmat 同口径），生命上限由引擎 tick 后同步。
+    """
+    from app.core import level_rules
+
+    cfg = get_config()
+    theme = cfg.level_theme(3)
+    assert int(theme["modifiers"].get("infection_per_turn", 0)) == 1, \
+        "L3 中心医院应配 infection_per_turn: 1"
+
+    st = {"depth": 3, "infection": 10, "turn": 0}
+    level_rules.tick_turn(cfg, st)
+    assert st["infection"] == 11, f"L3 每回合应 +1 感染，实际 {st['infection']}"
+
+    # 非 L3 不受影响
+    st2 = {"depth": 1, "infection": 10, "turn": 0}
+    level_rules.tick_turn(cfg, st2)
+    assert st2["infection"] == 10, "L1 不应有每回合感染"
+
+    # L2 手电每房消耗减半（8 → 4，用户拍板）
+    l2 = cfg.level_theme(2)["modifiers"]
+    assert int(l2["flashlight_cost_per_room"]) == 4, "L2 手电每房消耗应减半为 4"
+
+
+def test_first_encounter_single_enemy():
+    """本局第一场遭遇固定 1 只（开局 mercy），第二场恢复正常随机。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        room = st["level_map"]["rooms"][st["level_map"]["current"]]
+        room["type"] = "combat"
+        room["cleared"] = False
+        st["room"] = {"type": "combat", "name": "街道"}
+        st["in_combat"] = False
+        st["combat"] = {"enemies": [], "round": 0}
+
+        await eng._enter_combat(room)
+        assert st["in_combat"], "第一场遭遇应进入战斗"
+        assert len([e for e in st["combat"]["enemies"] if e["hp"] > 0]) == 1, \
+            "本局第一场遭遇应只有 1 只敌人"
+        assert st["first_combat_done"] is True
+
+        # 清场后再进第二场：数量回到遭遇表随机（不再钳制）
+        for e in st["combat"]["enemies"]:
+            e["hp"] = 0
+        await eng._enemy_round()
+        room2 = st["level_map"]["rooms"][st["level_map"]["current"]]
+        room2.update({"type": "combat", "cleared": False})
+        st["room"] = {"type": "combat", "name": "街道2"}
+        st["in_combat"] = False
+        st["combat"] = {"enemies": [], "round": 0}
+        await eng._enter_combat(room2)
+        assert st["in_combat"], "第二场应正常进入战斗"
+
+
 if __name__ == "__main__":
     test_hazard_enter_applies_onset_and_sets_countdown()
     test_hazard_choice_resolves_and_grants_loot()
@@ -316,4 +376,6 @@ if __name__ == "__main__":
     test_npc_hostile_at_high_infection()
     test_new_room_templates_validate()
     test_mapgen_can_produce_new_rooms()
-    print("all P6.2.2 tests passed")
+    test_hospital_infection_per_turn()
+    test_first_encounter_single_enemy()
+    print("all P6.2.2 tests passed (incl. hospital pressure)")
