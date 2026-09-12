@@ -209,9 +209,9 @@ talents:
 
   - id: ghost
     name: 如影随形
-    desc: 噪音衰减 +100%，但生命上限 −3
+    desc: 跨层时携带的噪音额外减半，但生命上限 −3
     weight: 5
-    mods: {noise_decay_mult: 2.0, hp_max: -3}
+    mods: {keep_ratio_mult: 0.5, hp_max: -3}
 
   # ---------------- 瞄准/技巧 ----------------
   - id: marksman_training

@@ -77,16 +77,17 @@ def check_horde(cfg: GameConfig, state: dict) -> bool:
     触发/平息线按地区缩放（上限 30 的地区，触发线 = 8 × 3 = 24）。
     """
     ncfg = cfg.balance["noise"]["horde"]
-    scale = region_scale(cfg, int(state.get("depth", 1)))
     v = value(state)
     if state.get("horde"):
-        if v <= float(ncfg["end"]) * scale:
+        if v <= noise_max(cfg, int(state.get("depth", 1))) * float(ncfg.get("end_pct", 0.6)):
             state["horde"] = False
         return False
+    # 触发线 = 地区噪音上限 × threshold_pct（上限随地区/天赋变化也自洽）；
+    # horde_threshold_delta 为绝对增量，在百分比线之后叠加
     threshold = (
-        float(ncfg["threshold"])
+        noise_max(cfg, int(state.get("depth", 1))) * float(ncfg.get("threshold_pct", 0.85))
         + float(talents.mod(state, "horde_threshold_delta", 0))
-    ) * scale
+    )
     if v >= threshold:
         state["horde"] = True
         return True

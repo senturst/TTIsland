@@ -108,8 +108,9 @@ noise:
     sprint: 2
     glass: 1
   horde:
-    threshold: 9
-    end: 6
+    # 触发/平息线 = 噪音上限 × 百分比（上限随地区变化：地区 1 = 15，地区 2 = 30）
+    threshold_pct: 0.85
+    end_pct: 0.60
     extra_spawn: [3, 6]
     density_mult: 2.0
     # 尸潮被消灭后按下述比例削掉噪音（可配置）。打完一波尸潮等于把整层的

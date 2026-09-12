@@ -386,6 +386,8 @@ class GameConfig:
             "execute_dmg_pct", "brace_acc_bonus_add",
             # P9 弹匣系统（run_service：装填/弹匣容量）
             "mag_size_mult", "reload_free",
+            # P9 如影随形（level_rules.on_enter_level 跨层噪音保留）
+            "keep_ratio_mult",
             # P9 破潮者（noise.cut_after_wave_clear 额外削噪）
             "wave_clear_cut_bonus",
             # 资源与背包（run_service / _bag_cap）

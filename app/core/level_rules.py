@@ -34,7 +34,10 @@ def on_enter_level(cfg: GameConfig, state: dict, level: int) -> list[str]:
     if t_noise is not None:
         state["noise"] = float(t_noise)
     else:
-        keep = float(noise_cfg.get("keep_ratio_on_enter", 0.1))
+        # 如影随形（keep_ratio_mult）：跨层携带的噪音按倍率减免
+        keep = float(noise_cfg.get("keep_ratio_on_enter", 0.1)) * float(
+            talents.mod(state, "keep_ratio_mult", 1.0)
+        )
         cap = noise_cfg.get("carry_cap_on_enter")
         carried = float(state.get("noise", 0)) * keep
         state["noise"] = min(carried, float(cap)) if cap is not None else round(carried, 1)

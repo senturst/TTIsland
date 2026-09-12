@@ -96,6 +96,10 @@ def _item_desc(item: dict, kind: str, absorb_pct: float | None = None) -> str:
             p.append(f"计分 +{item['score']}")
 
     elif kind == "ammo":
+        # P9 弹药品质：伤害加成是弹药的核心属性，拾取量次之
+        mult = float(item.get("dmg_mult", 1.0) or 1.0)
+        if mult != 1.0:
+            p.append(f"每发伤害 {round(mult * 100)}%")
         qty = item.get("qty")
         if isinstance(qty, list):
             p.append(f"每拾 {qty[0]}–{qty[1]}")

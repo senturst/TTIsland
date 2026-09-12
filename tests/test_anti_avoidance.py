@@ -240,7 +240,7 @@ def test_horde_flag_without_engagement_no_cut():
         st = eng.state
         st["in_combat"] = True
         st["combat"] = {"enemies": [C.make_enemy(cfg, "walker", 1)], "round": 0}
-        st["noise"] = 9.0
+        st["noise"] = 11.0  # 平息线（9）与触发线（12.75）之间的滞后带
         st["horde"] = True  # 潮在路上，但这场是普通战斗（敌人无潮兵标记）
         st["weapon"] = {"id": "crowbar"}
         st["combat"]["enemies"][0]["hp"] = 1
@@ -249,7 +249,7 @@ def test_horde_flag_without_engagement_no_cut():
         await eng._act_attack({})
 
         assert st["horde"] is True, "没打退潮兵不应平息尸潮"
-        assert st["noise"] == 9.0, "清普通战斗不应削减噪音"
+        assert st["noise"] == 11.0, "清普通战斗不应削减噪音"
         assert not any("潮水" in l for l in st["log"]), "不应有尸潮平息提示"
 
     asyncio.run(run())
@@ -262,6 +262,7 @@ def test_clearing_real_horde_cuts_noise():
     async def run():
         eng = await _new_run(cfg)
         st = eng.state
+        st["talents"] = []  # 隔离随机天赋（破潮者的额外削噪会改变期望值）
         st["in_combat"] = True
         horde_enemy = C.make_enemy(cfg, "walker", 1)
         horde_enemy["horde"] = True  # spawn_horde 打的同一标记
@@ -308,20 +309,22 @@ def test_region2_noise_cap_30():
 
     asyncio.run(run())
 
-    # 触发线缩放：地区 2 = threshold(9)×3 = 27；地区 1 的防线在 add 封顶（上限 10）
-    thr = float(cfg.balance["noise"]["horde"]["threshold"]) * 3.0
-    st2 = {"depth": 6, "noise": thr, "horde": False}
-    assert noise.check_horde(cfg, st2) is True, "地区 2 触发线应缩放为 27"
+    # 触发线 = 地区噪音上限 × 85%：地区 1 = 15×0.85 = 12.75，地区 2 = 30×0.85 = 25.5
+    thr2 = noise.noise_max(cfg, 6) * float(cfg.balance["noise"]["horde"]["threshold_pct"])
+    st2 = {"depth": 6, "noise": thr2, "horde": False}
+    assert noise.check_horde(cfg, st2) is True, "地区 2 触发线应为上限 ×85%"
     assert st2["horde"] is True
-    st3 = {"depth": 6, "noise": thr - 0.1, "horde": False}
+    st3 = {"depth": 6, "noise": thr2 - 0.1, "horde": False}
     assert noise.check_horde(cfg, st3) is False, "地区 2 触发线下不应触发"
-    st4 = {"depth": 1, "noise": float(cfg.balance["noise"]["horde"]["threshold"]), "horde": False}
-    assert noise.check_horde(cfg, st4) is True, "地区 1 触发线仍是 9"
+    thr1 = noise.noise_max(cfg, 1) * float(cfg.balance["noise"]["horde"]["threshold_pct"])
+    st4 = {"depth": 1, "noise": thr1, "horde": False}
+    assert noise.check_horde(cfg, st4) is True, "地区 1 触发线应为 15×85% = 12.75"
 
-    # 上限/缩放查询
+    # 上限/缩放查询：地区 1 = 15（P8 后上调）、地区 2 = 30
     assert noise.noise_max(cfg, 6) == 30.0
-    assert noise.noise_max(cfg, 1) == 10.0
+    assert noise.noise_max(cfg, 1) == 15.0
     assert abs(noise.region_scale(cfg, 6) - 3.0) < 1e-9
+    assert abs(noise.region_scale(cfg, 1) - 1.5) < 1e-9
 
 
 def test_soldier_burst_volley():
