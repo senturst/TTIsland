@@ -2804,6 +2804,7 @@ class RunEngine:
 
         if choice == "leave":
             room["resolved"] = True
+            st["room"]["resolved"] = True  # 镜像同步：响应读的是这里，不同步面板不消失
             st["room"]["merchant_left"] = True
             self._log("你冲商人点了点头，继续往前走。")
             return
@@ -3217,8 +3218,10 @@ class RunEngine:
         st = self.state
         band = inf_mod.band_name(self.cfg, st["infection"])
         enemies = [
-            {"name": e["name"], "hp": max(0, e["hp"]), "hp_max": e["hp_max"]}
-            for e in st.get("combat", {}).get("enemies", [])
+            {"name": e["name"], "hp": max(0, e["hp"]), "hp_max": e["hp_max"],
+             # 战斗列表原始索引：前端点名攻击时回传 target 用
+             "idx": i}
+            for i, e in enumerate(st.get("combat", {}).get("enemies", []))
             if e["hp"] > 0
         ]
         wcfg = combat.equipped_weapon(self.cfg, st)

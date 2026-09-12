@@ -228,6 +228,22 @@ export function renderHUD() {
 }
 
 /* ------------------------------------------------------------------ */
+/* 战斗目标点选：点敌人卡片 = 优先攻击该目标（idx 回传服务端 target） */
+let selectedTarget = null;   // 战斗列表原始索引；null = 默认打第一个
+
+function aliveEnemies() {
+  return (state.enemies || []).filter((e) => e.hp > 0);
+}
+
+export function selectedTargetIdx() {
+  const alive = aliveEnemies();
+  if (!alive.length) return null;
+  if (selectedTarget != null && alive.some((e) => e.idx === selectedTarget)) {
+    return selectedTarget;
+  }
+  return alive[0].idx;
+}
+
 export function renderEnemies() {
   const box = document.getElementById("enemies");
   if (!box) return;
@@ -236,18 +252,28 @@ export function renderEnemies() {
   if (!state.inCombat || !alive.length) return;
 
   box.innerHTML = "";
+  // 选中目标失效（死亡/换场）→ 回到默认第一个
+  if (selectedTarget == null || !alive.some((e) => e.idx === selectedTarget)) {
+    selectedTarget = alive[0].idx;
+  }
   for (const e of alive) {
     const node = document.createElement("div");
-    node.className = "enemy" + (e.hp_max >= 60 ? " boss" : "");
+    const targeted = e.idx === selectedTarget;
+    node.className = "enemy" + (e.hp_max >= 60 ? " boss" : "") + (targeted ? " target" : "");
+    node.title = targeted ? "当前目标" : "点击设为优先攻击目标";
     const ic = document.createElement("span");
     ic.className = "icon hot";
     ic.textContent = iconFor(e.name) || "🧟";
     const name = document.createElement("span");
-    name.textContent = e.name;
+    name.textContent = (targeted ? "🎯 " : "") + e.name;
     const hp = document.createElement("span");
     hp.className = "hp";
     hp.textContent = `${Math.max(0, e.hp)}/${e.hp_max}`;
     node.append(ic, name, hp);
+    node.addEventListener("click", () => {
+      selectedTarget = e.idx;
+      renderEnemies();
+    });
     box.appendChild(node);
   }
 }

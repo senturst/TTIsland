@@ -275,6 +275,7 @@ ammo:
   # min_region —— 产出绑定：仅在 ≥ 该地区的层级产出（与 1e42c54 掉落过滤同机制）
   # 统一由掉落表与商店出货，qty 是单次拾取量。
   - id: ammo_t1
+    tier: 1
     name: 劣质弹药
     icon: "🔩"
     qty: [3, 6]
@@ -283,6 +284,7 @@ ammo:
     dmg_mult: 0.90
     min_region: 1
   - id: ammo_t2
+    tier: 2
     name: 制式弹药
     icon: "🔩"
     qty: [3, 6]
@@ -291,6 +293,7 @@ ammo:
     dmg_mult: 1.00
     min_region: 1
   - id: ammo_t3
+    tier: 3
     name: 精工弹药
     icon: "🔩"
     qty: [2, 4]
@@ -299,6 +302,7 @@ ammo:
     dmg_mult: 1.05
     min_region: 1
   - id: ammo_t4
+    tier: 4
     name: 军用弹药
     icon: "🔩"
     qty: [2, 4]
@@ -307,6 +311,7 @@ ammo:
     dmg_mult: 1.15
     min_region: 2
   - id: ammo_t5
+    tier: 5
     name: 实验弹药
     icon: "🔩"
     qty: [2, 3]
@@ -315,6 +320,7 @@ ammo:
     dmg_mult: 1.25
     min_region: 99
   - id: ammo_t6
+    tier: 6
     name: 原型弹药
     icon: "🔩"
     qty: [1, 2]

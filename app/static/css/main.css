@@ -839,3 +839,7 @@ kbd.hot { margin-left: .35rem; }
     min-height: 5.5rem;
   }
 }
+
+/* P9 战斗目标点选：点敌人卡片优先攻击 */
+.enemy { cursor: pointer; }
+.enemy.target { border-color: var(--phosphor); box-shadow: 0 0 0 1px var(--phosphor) inset; }

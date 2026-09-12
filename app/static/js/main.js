@@ -5,7 +5,7 @@ import { state, mutate, applyServerState } from "./state.js";
 import { initTerm, appendLine, playLines, skipTyping, patchLine } from "./term.js";
 import {
   renderAll, setBusy, flashHorde, setDegraded, pushWorldEvent, renderLeaderboard,
-  armGiveUp, giveUpArmed, openReloadPanel,
+  armGiveUp, giveUpArmed, openReloadPanel, selectedTargetIdx,
 } from "./render.js";
 
 let host = null;
@@ -67,6 +67,8 @@ async function handleAction(a) {
     other: a.other,
     // P9 装填：选择的弹种 id
     ammo: a.ammo,
+    // 战斗目标：攻击/射击带上点选的敌人（未点名 = 默认第一个）
+    target: a.target != null ? a.target : (a.id === "attack" || a.id === "shoot" ? selectedTargetIdx() : undefined),
   });
 }
 
