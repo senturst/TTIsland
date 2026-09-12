@@ -319,6 +319,8 @@ class RunEngine:
         else:
             # 升级抽取：若还有排队的升级，继续弹下一个三选一
             self._settle_levelups()
+            # 级联尾巴补查溢出：战斗结束点先弹了天赋时，欠下的整理排队等在这
+            self._check_bag_overflow()
 
     # ------------------------------------------------------------------
     def _apply_legacy(self, legacy: dict) -> None:
@@ -1392,6 +1394,7 @@ class RunEngine:
         if not enemies:
             st["in_combat"] = False
             self._log("周围安静下来了。")
+            self._check_bag_overflow()
             return
 
         wcfg = combat.equipped_weapon(self.cfg, st)
@@ -1517,9 +1520,17 @@ class RunEngine:
         return len(self.state["inventory"]) > self._bag_cap()
 
     def _check_bag_overflow(self) -> bool:
-        """超容量（含换装缩水）时暂停为 bag_overflow 决策：丢到装得下为止。"""
+        """超容量（含换装缩水）时暂停为 bag_overflow 决策：丢到装得下为止。
+
+        战斗中延后：杀怪掉落/战斗换装会超容量，但战斗里弹整理背包会锁住
+        攻击/逃跑——先拿着打，等战斗结束再弹（_enemy_round 清场分支、
+        _act_flee 成功处补查）。另外只在空闲时触发，绝不覆盖正在显示的
+        其他决策（天赋三选一/尸化/墓碑……被覆盖即丢失，比延后严重）。
+        """
         st = self.state
-        if self._over_capacity() and st.get("pending_decision") != "bag_overflow":
+        if st.get("in_combat"):
+            return False
+        if self._over_capacity() and st.get("pending_decision") is None:
             st["pending_decision"] = "bag_overflow"
             self._log("背包塞得太满了——先丢掉一些东西，才能继续行动。")
             return True
@@ -1622,11 +1633,16 @@ class RunEngine:
             st["room"].pop("grave", None)
 
     def _settle_bag_overflow(self) -> None:
-        """用/丢之后若已回到容量以内，解除 bag_overflow 决策（两条路径共用）。"""
+        """用/丢之后若已回到容量以内，解除 bag_overflow 决策（两条路径共用）。
+
+        解除后补结算升级：巢穴割巢等路径会在战斗结束点先占住决策槽
+        （溢出先弹），排队的升级从这里唤起，否则滞留到下一场战斗。
+        """
         st = self.state
         if st.get("pending_decision") == "bag_overflow" and not self._over_capacity():
             st["pending_decision"] = None
             self._log("背包腾出了空间。")
+            self._settle_levelups()
 
     async def _act_discard(self, payload: dict) -> None:
         """处理 bag_overflow：丢弃物品，直到格数回到容量以内才能继续行动。"""
@@ -1718,6 +1734,8 @@ class RunEngine:
             self._check_horde()
             # P7：战斗结束 → 结算待处理的升级（弹三选一）
             self._settle_levelups()
+            # 战斗中掉落/换装欠下的整理：现在才弹（修复战斗中锁操作）
+            self._check_bag_overflow()
             return
 
         for line in level_rules.on_combat_turn(self.cfg, st):
@@ -1889,6 +1907,8 @@ class RunEngine:
             self._log(f"你转身就跑，把它们甩在了身后。（噪音 +2，体力 −{cost}）" if cost
                       else "你转身就跑，把它们甩在了身后。（噪音 +2）")
             self._check_horde()
+            # 战斗中欠下的整理（掉落/换装超容量）：逃掉了也逃不掉整理背包
+            self._check_bag_overflow()
         else:
             self._log(f"你没能甩掉它们。（体力 −{cost}）" if cost else "你没能甩掉它们。")
             await self._enemy_round()

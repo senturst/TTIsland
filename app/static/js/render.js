@@ -96,7 +96,7 @@ export function renderHUD() {
   const ratio = s.hpMax ? s.hp / s.hpMax : 0;
   const bar = document.getElementById("hp-bar");
   if (bar) {
-    bar.textContent = asciiBar(ratio);
+    bar.textContent = asciiBar(ratio, 8);
     bar.className = "gauge-bar" + (ratio <= 0.25 ? " low" : ratio <= 0.5 ? " mid" : "");
   }
   setText("hp-num", `${Math.max(0, s.hp)}/${s.hpMax}`);
@@ -105,10 +105,26 @@ export function renderHUD() {
   const infRatio = s.infection / 100;
   const infBar = document.getElementById("inf-bar");
   if (infBar) {
-    infBar.textContent = asciiBar(infRatio, 10);
+    infBar.textContent = asciiBar(infRatio, 8);
     infBar.className = "gauge-bar" + (s.infection >= 75 ? " high" : "");
   }
   setText("inf-num", s.infectionBand ? `${s.infection}% ${s.infectionBand}` : `${s.infection}%`);
+
+  // 经验（P7 升级攒条：攒满 next 升一级，精英击杀直接升不走此条）
+  const xpBar = document.getElementById("xp-bar");
+  if (xpBar) {
+    const xp = s.xp;
+    if (xp && xp.next > 0) {
+      const xpRatio = Math.max(0, Math.min(1, xp.cur / xp.next));
+      xpBar.textContent = asciiBar(xpRatio, 8);
+      xpBar.className = "gauge-bar";
+      setText("xp-num", `${xp.cur}/${xp.next}`);
+    } else {
+      xpBar.textContent = asciiBar(0, 8);
+      xpBar.className = "gauge-bar";
+      setText("xp-num", "--");
+    }
+  }
 
   // 体力（真实资源：逃跑冲刺消耗，罐头/能量饮料/篝火回复）
   const stamMax = s.staminaMax || 20;
@@ -116,7 +132,7 @@ export function renderHUD() {
   const stamRatio = stamMax ? stam / stamMax : 0;
   const stamBar = document.getElementById("stam-bar");
   if (stamBar) {
-    stamBar.textContent = asciiBar(stamRatio);
+    stamBar.textContent = asciiBar(stamRatio, 8);
     stamBar.className = "gauge-bar" + (stamRatio <= 0.25 ? " low" : stamRatio <= 0.5 ? " mid" : "");
   }
   setText("stam-num", `${stam}/${stamMax}`);

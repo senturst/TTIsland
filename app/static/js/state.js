@@ -43,6 +43,7 @@ export const state = {
   legacyBlocked: [],
   talentOptions: null,
   talent: null,
+  xp: null,            // {cur, next, level}（P7 升级攒条）
   pendingDecision: null,
   aiDegraded: false,
   icons: {},
@@ -119,6 +120,7 @@ export function applyServerState(data) {
     s.legacyBlocked = data.legacy_blocked ?? [];
     s.talentOptions = data.talent_options ?? null;
     s.talent = data.talent ?? s.talent;
+    s.xp = data.xp ?? s.xp;
     s.pendingDecision = data.pending_decision ?? null;
     s.aiDegraded = !!data.ai_degraded;
     if (data.icons) Object.assign(s.icons, data.icons);

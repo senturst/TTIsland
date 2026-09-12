@@ -336,6 +336,7 @@ async def active(client_id: str = Depends(client_id_from)) -> Any:
         # 刷新时若正好停在天赋三选一，选项也得能恢复出来
         "talent_options": resp["talent_options"],
         "talent": resp["talent"],
+        "xp": resp["xp"],
         "icons": resp["icons"],
         # 续玩时回放最近 40 行日志，让玩家接上上下文
         "history": engine.state.get("log", [])[-40:],

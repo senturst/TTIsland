@@ -128,10 +128,10 @@ body::after {
 .hud-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .hud-row-meta { margin-top: .35rem; gap: .4rem; }
 
-.gauge { display: flex; align-items: center; gap: .5rem; flex: 1 1 240px; min-width: 220px; }
-.gauge-label { color: var(--text-faint); font-size: .75rem; letter-spacing: .1em; width: 2.6em; }
+.gauge { display: flex; align-items: center; gap: .4rem; flex: 1 1 170px; min-width: 0; }
+.gauge-label { color: var(--text-faint); font-size: .75rem; letter-spacing: .1em; width: 2.2em; }
 .gauge-bar { letter-spacing: -.06em; font-size: .95rem; white-space: nowrap; }
-.gauge-num { font-size: .78rem; color: var(--text-dim); min-width: 3.6em; }
+.gauge-num { font-size: .78rem; color: var(--text-dim); min-width: 3.2em; }
 
 #hp-bar { color: var(--safe); }
 #hp-bar.low { color: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
@@ -746,6 +746,15 @@ kbd.hot { margin-left: .35rem; }
 
   .hud { padding: .4rem .7rem .3rem; }
   .hud-row { gap: .5rem; }
+  /* 生命/体力/感染/经验：2×2 网格。四条一排在手机宽度塞不下，
+     竖排四行又太占高度——2×2 比旧版三行还省一行，终端空间反而变多 */
+  .hud-row:not(.hud-row-meta) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .3rem .6rem;
+  }
+  .hud-row:not(.hud-row-meta) .gauge-bar { font-size: .8rem; }
+  .hud-row:not(.hud-row-meta) .gauge-num { min-width: 0; }
   /* 元信息 chips 太多，换行会挤掉终端空间 —— 改成横向滑动一行 */
   .hud-row-meta {
     flex-wrap: nowrap; overflow-x: auto;

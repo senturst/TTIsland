@@ -31,6 +31,11 @@ async def _new_run(cfg):
     eng = await RunEngine.new_run(cfg, None)
     if eng.state.get("pending_decision") == "talent":
         await eng.act("talent", {"index": 0})
+    # 进地牢第一步可能随机撞进战斗：背包测试默认在非战斗基线上断言
+    # （战斗中超容量按设计延后到战斗结束，会打破"拾取即弹决策"的旧断言）
+    eng.state["in_combat"] = False
+    eng.state.setdefault("combat", {})
+    eng.state["combat"]["enemies"] = []
     return eng
 
 
@@ -165,6 +170,106 @@ def test_use_consumable_back_to_cap_releases_decision():
         assert _loot.count(eng.state, "bandage") == before - 1, "应真的用掉 1 个绷带"
         assert eng.state["pending_decision"] is None, \
             "用完回到容量内应解除决策（修复前卡死在 bag_overflow）"
+
+    asyncio.run(run())
+
+
+def test_combat_drop_defers_overflow_to_combat_end():
+    """战斗中掉落超容量不弹整理：延后到战斗结束（_enemy_round 清场分支）。
+
+    修复前：杀怪掉落 → _acquire → _check_bag_overflow 在战斗中直接
+    pending=bag_overflow，锁住攻击/逃跑，逼玩家边打边整理。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["talents"] = []
+        # 先进战斗再超容量：复现"战斗中掉落"的时序
+        eng.state["in_combat"] = True
+        eng.state["combat"]["enemies"] = [{"id": "walker", "hp": 5}]
+        _fill_to_cap(eng, cfg)
+        eng._acquire("crowbar", 1, durability=20)
+        assert len(eng.state["inventory"]) == eng._bag_cap() + 1, "先拿后丢：战利品已入包"
+        assert eng.state["pending_decision"] is None, "战斗中不得弹整理决策"
+        assert eng._check_bag_overflow() is False, "战斗中检查应延后"
+
+        # 打完最后一只 → 清场分支应把欠下的整理弹出来
+        for e in eng.state["combat"]["enemies"]:
+            e["hp"] = 0
+        await eng._enemy_round()
+        assert eng.state["in_combat"] is False
+        assert eng.state["pending_decision"] == "bag_overflow", \
+            "战斗结束应补弹欠下的整理决策"
+
+    asyncio.run(run())
+
+
+def test_flee_surfaces_deferred_overflow():
+    """战斗中欠下的整理，逃跑成功后也要弹出来（逃得掉战斗逃不掉整理）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["talents"] = []
+        eng.state["in_combat"] = True
+        eng.state["combat"]["enemies"] = [{"id": "walker", "hp": 5, "speed": 5}]
+        _fill_to_cap(eng, cfg)
+        eng._acquire("crowbar", 1, durability=20)
+        assert eng.state["pending_decision"] is None
+
+        # 强制逃跑成功（try_flee 随机），走真实 _act_flee 出口
+        from app.core import combat as _combat
+        orig = _combat.try_flee
+        _combat.try_flee = lambda *a, **k: True
+        try:
+            await eng._act_flee({})
+        finally:
+            _combat.try_flee = orig
+
+        assert eng.state["in_combat"] is False
+        assert eng.state["pending_decision"] == "bag_overflow", \
+            "逃跑成功后应补弹欠下的整理决策"
+
+    asyncio.run(run())
+
+
+def test_overflow_check_never_clobbers_other_decisions():
+    """超容量检查不得覆盖正在显示的其他决策（天赋三选一被覆盖即丢失）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["talents"] = []
+        _fill_to_cap(eng, cfg)
+        eng._acquire("crowbar", 1, durability=20)
+        # 此时 pending=bag_overflow；模拟更严重的场景：别的决策正在显示
+        eng.state["pending_decision"] = "talent"
+        eng.state["talent_options"] = [
+            {"id": "tough", "name": "韧皮", "desc": "", "weight": 1, "mods": {}}
+        ]
+        assert eng._check_bag_overflow() is False, "有决策在排队时不得抢槽"
+        assert eng.state["pending_decision"] == "talent", "原决策应保留"
+
+    asyncio.run(run())
+
+
+def test_overflow_release_settles_queued_levelups():
+    """溢出决策解除后应补结算排队的升级（否则滞留到下一场战斗）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["talents"] = []
+        _fill_to_cap(eng, cfg)
+        eng._acquire("crowbar", 1, durability=20)
+        assert eng.state["pending_decision"] == "bag_overflow"
+        eng.state["pending_levelups"] = 1  # 模拟战斗期间攒下、被溢出压住的升级
+
+        await eng._act_discard({"choice": "drop", "item": "small_pack"})
+
+        assert eng.state["pending_decision"] == "talent", \
+            "丢完腾出空间后应立刻弹出排队的升级三选一"
 
     asyncio.run(run())
 
