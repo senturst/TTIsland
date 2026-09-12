@@ -271,6 +271,8 @@ def make_enemy(cfg: GameConfig, monster_id: str, level: int) -> dict[str, Any]:
         "ambush": m.get("ambush", False),
         "boss": m.get("boss", False),
         "elite": m.get("elite", False),
+        # P8 扫射（地区 2 远程怪）：[min, max] 发/回合，单发伤害同步下调
+        "burst": m.get("burst"),
         "score": m.get("score", 8),
         "xp": m.get("xp", 10),
     }

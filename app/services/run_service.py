@@ -1932,34 +1932,57 @@ class RunEngine:
                 continue
 
             ep = combat.enemy_profile(self.cfg, enemy)
-            res = combat.resolve_attack(
-                self.cfg, self.rng, ep, pp,
-                attacker_meta={
-                    "bite_chance": enemy.get("bite_chance", 0),
-                    "bite_infection": enemy.get("bite_infection", [3, 6]),
-                },
-            )
-            if not res["hit"]:
+            # P8 扫射（地区 2 远程怪）：burst [min,max] 发连射，每发独立
+            # 命中/伤害/护甲吸收——防弹衣按发数吃吸收，对弹幕更有效（用户拍板）。
+            # 玩家倒下即刻停止剩余射击。
+            burst = enemy.get("burst")
+            shots = max(1, self.rng.rand_range_int(burst)) if burst else 1
+            hit_shots = 0
+            total_taken = 0
+            total_absorbed = 0
+            bite_infection_total = 0
+            for _ in range(shots):
+                if st["hp"] <= 0:
+                    break
+                res = combat.resolve_attack(
+                    self.cfg, self.rng, ep, pp,
+                    attacker_meta={
+                        "bite_chance": enemy.get("bite_chance", 0),
+                        "bite_infection": enemy.get("bite_infection", [3, 6]),
+                    },
+                )
+                if not res["hit"]:
+                    continue
+                hit_shots += 1
+                absorbed = self._apply_armor_absorb(res["dmg"])
+                taken = max(0, res["dmg"] - absorbed)
+                total_taken += taken
+                total_absorbed += absorbed
+                st["hp"] -= taken
+                if "bite" in res["effects"] and res["infection"]:
+                    bite_infection_total += int(res["infection"])
+
+            if burst:
+                abs_txt = f"（护甲吸收 {total_absorbed}）" if total_absorbed else ""
+                self._log(
+                    f"{enemy['name']}扣动扳机扫射，{hit_shots}/{shots} 发命中——"
+                    f"你受到 {total_taken} 点伤害{abs_txt}。"
+                )
+            elif hit_shots == 0:
                 self._log(f"{enemy['name']}扑空了。")
-                continue
-
-            absorbed = self._apply_armor_absorb(res["dmg"])
-            taken = max(0, res["dmg"] - absorbed)
-            st["hp"] -= taken
-            if absorbed:
-                self._log(f"{enemy['name']}击中你，造成 {taken} 点伤害（护甲吸收 {absorbed}）。")
             else:
-                self._log(f"{enemy['name']}击中你，造成 {res['dmg']} 点伤害。")
+                abs_txt = f"（护甲吸收 {total_absorbed}）" if total_absorbed else ""
+                self._log(f"{enemy['name']}击中你，造成 {total_taken} 点伤害{abs_txt}。")
 
-            if "bite" in res["effects"] and res["infection"]:
-                old, new = self._add_infection(res["infection"])
+            if bite_infection_total:
+                old, new = self._add_infection(bite_infection_total)
                 self._log(f"它咬了你一口。（感染 +{new - old}）")
                 line = inf_mod.describe_change(self.cfg, old, new)
                 if line:
                     self._log(line)
 
             oh = enemy.get("on_hit") or {}
-            if oh.get("noise_add"):
+            if oh.get("noise_add") and hit_shots > 0:
                 noise.add(self.cfg, st, oh["noise_add"])
                 self._log(f"{enemy['name']}尖叫起来，声音传出去很远。（噪音 +{oh['noise_add']}）")
 

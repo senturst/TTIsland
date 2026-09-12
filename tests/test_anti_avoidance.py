@@ -273,6 +273,12 @@ def test_clearing_real_horde_cuts_noise():
         eng._acquire = lambda *a, **k: None
 
         await eng._act_attack({})
+        # 17% 未命中偶发：没打死就再打（清场条件是潮兵全灭）
+        for _ in range(4):
+            if all(e["hp"] <= 0 for e in st["combat"]["enemies"]):
+                break
+            st["in_combat"] = True
+            await eng._act_attack({})
 
         cut = float(cfg.balance["noise"]["horde"]["clear_noise_cut"])
         assert st["horde"] is False, "清掉潮兵应平息尸潮"
@@ -317,9 +323,38 @@ def test_region2_noise_cap_30():
     assert abs(noise.region_scale(cfg, 6) - 3.0) < 1e-9
 
 
+def test_soldier_burst_volley():
+    """P8 变异士兵扫射：多发独立命中，汇总日志带命中数；玩家倒下即停。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["depth"] = 6
+        st["in_combat"] = True
+        soldier = C.make_enemy(cfg, "soldier", 6)
+        soldier["hp"] = 999  # 打不死，专注看 volley
+        st["combat"] = {"enemies": [soldier], "round": 0}
+        st["weapon"] = {"id": "crowbar"}
+        st["armor"] = {"id": "military_vest", "durability": 55}
+        st["hp"] = 200
+        st["hp_max"] = 200
+        eng._acquire = lambda *a, **k: None
+
+        await eng._enemy_round()
+
+        assert any("扫射" in l and "发命中" in l for l in st["log"]), \
+            f"应有扫射汇总日志：{st['log'][-3:]}"
+        assert st["hp"] < 200 or "0/2 发命中" in st["log"][-1] or "0/3 发命中" in st["log"][-1]
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     test_region2_noise_cap_30()
     print("✓ 地区 2 噪音上限 30（触发线×3）")
+    test_soldier_burst_volley()
+    print("✓ 变异士兵扫射 volley")
     test_gatekeeper_config_exists()
     print("✓ 守门者配置完整")
     test_stairs_spawns_elite()

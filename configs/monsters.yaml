@@ -153,15 +153,18 @@ monsters:
     icon: "🪖"
     <<: *base
     hp: 18
-    dmg: [4, 7]
+    dmg: [2, 4]
     acc: 65
     armor: 1
     speed: 5
+    # 扫射（P8 用户拍板）：多发低伤——防弹衣的百分比吸收逐发生效，
+    # 对弹幕比对单发大伤害更有效
+    burst: [2, 3]
     bite_chance: 0.20
     bite_infection: [4, 8]
     score: 12
     xp: 14
-    desc: 军装还在身上，枪却早就不在了。它用抢托和牙齿完成了最后一次巡逻。
+    desc: 军装还在身上，枪也还在手里。它用短点射完成了最后一次巡逻。
 
   - id: war_hound
     name: 军犬
@@ -239,7 +242,7 @@ monsters:
     # 地区 2 Boss：装甲尸潮指挥官。对位暴君（65hp/6-9/75命中/甲2）压一档：
     # 血更厚、甲更硬，伤害峰值更高；两个技能循环（冲撞 + 尸潮践踏）。
     hp: 100
-    dmg: [7, 10]
+    dmg: [2, 5]
     acc: 72
     eva: 5
     armor: 3
@@ -248,6 +251,9 @@ monsters:
     boss: true
     score: 300
     xp: 80
+    # 普通攻击 = 尸潮弹幕扫射（多发低伤，防弹衣逐发吸收）；
+    # 技能（装甲冲撞/尸潮践踏）保留单发重击节奏
+    burst: [4, 6]
     abilities:
       - id: marshal_charge
         name: 装甲冲撞
