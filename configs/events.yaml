@@ -158,3 +158,58 @@ events:
         outcomes:
           - {p: 0.60, loot_category: ammo, text: 他们在石头下面藏了个盒子。}
           - {p: 0.40, spawn: walker, count: 2, text: 他们回来了，而且不太高兴。}
+
+  # ---- P8 补充事件：保证每个层都有专属风味（军事/医院/商场主题） ----
+  - id: hospital_broadcast
+    name: 医院广播
+    weight: 14
+    levels: [3, 5]
+    text: "{ai_desc}。天花板上的广播突然响起，女声用平静得可怕的语气循环播放疏散通知。"
+    choices:
+      - id: listen
+        label: 靠着墙听完最后一段
+        noise: 0
+        outcomes:
+          - {p: 0.70, heal: [3, 6], text: 通知末尾有一句「存活人员请互相照顾」。你莫名安定了一些。}
+          - {p: 0.30, text: 广播自己中断了。你听了个寂寞。}
+      - id: smash
+        label: 砸开广播拿电池
+        noise: 2
+        outcomes:
+          - {p: 0.60, loot_category: material, text: 广播机里的电池还能用。}
+          - {p: 0.40, spawn: walker, text: 砸响引来了两个摇摇晃晃的身影。}
+
+  - id: military_airdrop
+    name: 军用空投
+    weight: 12
+    levels: [6, 10]
+    text: "{ai_desc}。一架运输机掠过上空，投下的补给箱拖着降落伞砸进街区——砸出的巨响正在吸引注意。"
+    choices:
+      - id: pry_open
+        label: 撬开补给箱
+        require_pry: true
+        noise: 2
+        outcomes:
+          - {p: 0.60, loot_category: ammo, quality: 1, text: 箱子里码着崭新的制式弹药，枪械位早被搬空了。}
+          - {p: 0.40, spawn: soldier, count: 2, text: 箱子边早就埋伏了人——或者说，曾经是人。}
+      - id: scatter
+        label: 只捡散落出来的物资
+        outcomes:
+          - {p: 0.70, loot_category: ammo, text: 摔裂的箱子里滚出一堆弹药。}
+          - {p: 0.30, cut: [1, 3], text: 降落伞绳缠住了你的脚，你摔进碎玻璃里。}
+
+  - id: mall_mannequin
+    name: 商场人体模型
+    weight: 12
+    levels: [4, 6]
+    text: "{ai_desc}。一排穿着应季新装的人体模型站在橱窗里——其中一件的姿势好像变了。"
+    choices:
+      - id: pockets
+        label: 翻模型的口袋
+        outcomes:
+          - {p: 0.50, loot_category: trinket, text: 模型手里攥着谁的结婚戒指。}
+          - {p: 0.50, spawn: walker, text: 那件「模型」转过了头。}
+      - id: leave_quiet
+        label: 不碰它，贴着另一侧走
+        outcomes:
+          - {p: 1.0, text: 你贴着橱窗的另一侧走了过去。谁也没招惹谁。}

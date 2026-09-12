@@ -41,6 +41,13 @@ def player_profile(
     weapon = weapon if weapon is not None else equipped_weapon(cfg, state)
     acc += float(weapon.get("acc_mod", 0)) if weapon else 0.0
 
+    # 护甲闪避修正（P8 接线，用户拍板）：重甲笨重难躲（-8~-15）、头盔轻便（+2）。
+    # 旧实现只在描述里显示、从不参与计算（死数值 → 重甲无代价）。
+    armor_eva = 0
+    armor_obj = state.get("armor")
+    if armor_obj and armor_obj.get("id"):
+        armor_eva = int(cfg.item(armor_obj["id"]).get("eva", 0) or 0)
+
     crit = float(weapon.get("crit", base["crit"])) if weapon else float(base["crit"])
     crit += float(talents.mod(state, "crit", 0.0))
 
@@ -94,7 +101,8 @@ def player_profile(
 
     return {
         "acc": clamp_hit(cfg, acc + float(talents.mod(state, "acc", 0))),
-        "eva": float(base["eva"]) + float(talents.mod(state, "eva", 0)),
+        "eva": float(base["eva"]) + armor_eva
+        + float(talents.mod(state, "eva", 0)),
         "armor": float(base["armor"]) + _armor_value(cfg, state)
         + float(talents.mod(state, "armor", 0)),
         "crit": crit,

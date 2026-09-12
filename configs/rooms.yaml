@@ -18,6 +18,13 @@ templates:
       enemy_bonus: 0
       vibe: 被遗弃的街道，翻倒的车辆和干涸的血迹
 
+    - id: collapsed_apartment
+      name: 倒塌居民楼
+      level_min: 1
+      level_max: 3
+      enemy_bonus: 0
+      vibe: 半边楼体垮了下来，家具悬在断口摇摇欲坠
+
     - id: parking_garage
       name: 地下车库
       level_min: 2
@@ -25,6 +32,56 @@ templates:
       enemy_bonus: 1
       light_cost: 2
       vibe: 漆黑的地下车库，只有手电光能照到的一小圈
+
+    - id: metro_tunnel
+      name: 地铁检修道
+      level_min: 2
+      level_max: 4
+      enemy_bonus: 1
+      light_cost: 1
+      vibe: 检修道又窄又长，铁轨上停着一列永远不再出发的列车
+
+    - id: pharmacy_backalley
+      name: 药房后巷
+      level_min: 3
+      level_max: 5
+      enemy_bonus: 1
+      vibe: 药房后巷堆满过期药品的纸箱，空气里全是苦味
+
+    - id: mall_atrium
+      name: 商场中庭
+      level_min: 4
+      level_max: 6
+      enemy_bonus: 1
+      vibe: 挑空中庭挂着褪色的促销横幅，扶梯停在半途
+
+    - id: rooftop_water_tank
+      name: 天台水箱间
+      level_min: 5
+      level_max: 6
+      enemy_bonus: 0
+      vibe: 水箱间的门被风拍得砰砰响，能俯瞰半座城
+
+    - id: sentry_base
+      name: 哨塔底层
+      level_min: 6
+      level_max: 7
+      enemy_bonus: 1
+      vibe: 哨塔底层堆着沙袋和空弹匣，对讲机沙沙作响
+
+    - id: supply_corridor
+      name: 补给走廊
+      level_min: 8
+      level_max: 9
+      enemy_bonus: 1
+      vibe: 运输补给的手推车排成一列，像一支沉默的送葬队伍
+
+    - id: comms_room
+      name: 通讯机房
+      level_min: 9
+      level_max: 10
+      enemy_bonus: 2
+      vibe: 机房的服务器还在嗡嗡运行，指示灯在黑暗里明明灭灭
 
     - id: hospital_ward
       name: 住院病房
@@ -259,6 +316,16 @@ templates:
       harvest_rolls: 2
       harvest_quality: 1
       vibe: 一排排铁丝犬笼全部被从里面撞开，食盆里长出了霉
+    - id: command_nest
+      name: 指挥所巢穴
+      level_min: 9
+      level_max: 10
+      enemy_bonus: 3
+      harvest_tables: [ammo, gear]
+      harvest_rolls: 2
+      harvest_quality: 2
+      harvest_cash: [5, 12]
+      vibe: 作战室里的一切都被肉质组织包裹，话筒里还在传出呼吸声
 
   special:
     - id: stairs_down

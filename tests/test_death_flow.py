@@ -261,6 +261,27 @@ def test_boss_cannot_be_fled_and_reentry_retriggers():
     asyncio.run(run())
 
 
+def test_armor_eva_wired():
+    """护甲 eva 接线（用户拍板）：重甲闪避惩罚、头盔加成进入玩家闪避。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["armor"] = None
+        base = combat.player_profile(cfg, st)["eva"]
+
+        st["armor"] = {"id": "military_vest", "durability": 55}
+        heavy = combat.player_profile(cfg, st)["eva"]
+        assert heavy == base - 12, f"军用防弹服应 −12 闪避，实际 {base}→{heavy}"
+
+        st["armor"] = {"id": "bike_helmet", "durability": 25}
+        light = combat.player_profile(cfg, st)["eva"]
+        assert light == base + 2, f"头盔应 +2 闪避，实际 {base}→{light}"
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     test_death_offers_legacy_choices()
     print("✓ 死亡后给出遗物选项")
@@ -280,6 +301,8 @@ if __name__ == "__main__":
     print("✓ 持枪挥拳兜底")
     test_armor_legacy_full_with_instance_max()
     print("✓ 护甲继承：满耐久+实例上限")
+    test_armor_eva_wired()
+    print("✓ 护甲 eva 接线（重甲-12/头盔+2）")
     test_boss_cannot_be_fled_and_reentry_retriggers()
     print("✓ Boss 战不可逃跑 + 重进房间重新接敌")
     print("\n死亡流程回归测试全部通过")

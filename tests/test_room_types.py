@@ -339,6 +339,19 @@ def test_hospital_infection_per_turn():
     assert int(l2["flashlight_cost_per_room"]) == 4, "L2 手电每房消耗应减半为 4"
 
 
+def test_every_level_has_rooms_and_events():
+    """1-10 层每层至少：1 个战斗模板 + 1 个事件（用户要求全覆盖）。"""
+    cfg = get_config()
+    for lv in range(1, cfg.max_level + 1):
+        combat_ok = any(
+            int(t.get("level_min", 1)) <= lv <= int(t.get("level_max", cfg.max_level))
+            for t in cfg.room_templates.get("combat", [])
+        )
+        assert combat_ok, f"L{lv} 没有战斗模板覆盖"
+        evs = [e for e in cfg.events if e["levels"][0] <= lv <= e["levels"][1]]
+        assert evs, f"L{lv} 没有任何事件覆盖"
+
+
 def test_first_encounter_single_enemy():
     """本局第一场遭遇固定 1 只（开局 mercy），第二场恢复正常随机。"""
     cfg = get_config()
@@ -385,4 +398,5 @@ if __name__ == "__main__":
     test_mapgen_can_produce_new_rooms()
     test_hospital_infection_per_turn()
     test_first_encounter_single_enemy()
+    test_every_level_has_rooms_and_events()
     print("all P6.2.2 tests passed (incl. hospital pressure)")

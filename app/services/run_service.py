@@ -1165,11 +1165,11 @@ class RunEngine:
         slots = mcfg.get("shop_slots", {}) or {}
         out: list[dict] = []
         for _ in range(int(slots.get("weapon", 0))):
-            # 拳头（weight 0）任何渠道都不可获得——兜底近战不是商品
+            # 拳头（weight 0）任何渠道都不可获得——兜底近战不是商品；
+            # 撬棍可上架（用户拍板：只有拳头不可获取）
             pool = [
                 w["id"] for w in cfg.items_cfg["weapons"]
-                if w["id"] != "crowbar" and int(w.get("weight", 0) or 0) > 0
-                and _region_ok(w["id"])
+                if int(w.get("weight", 0) or 0) > 0 and _region_ok(w["id"])
             ]
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
@@ -1535,7 +1535,7 @@ class RunEngine:
         rid = self.cfg.region_id_for_level(self.state["depth"])
         pool = [
             w for w in self.cfg.items_cfg["weapons"]
-            if w["id"] != "crowbar" and int(w.get("weight", 0) or 0) > 0
+            if int(w.get("weight", 0) or 0) > 0
             and int(w.get("min_region", 1) or 1) <= rid
         ]
         if not pool:
