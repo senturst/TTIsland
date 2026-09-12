@@ -1218,6 +1218,9 @@ class RunEngine:
             # 消耗品允许"用了"代替"丢了"——能用掉的就不该逼玩家白扔。
             if action == "use":
                 await self._act_use(payload)
+                # 修复：用完同样要检查是否已回到容量以内——此前只有丢弃
+                # 路径会解除决策，用掉超载物后决策卡死，逼玩家再丢一件才能关闭。
+                self._settle_bag_overflow()
             else:
                 await self._act_discard(payload)
 
@@ -1618,6 +1621,13 @@ class RunEngine:
             room["resolved"] = True
             st["room"].pop("grave", None)
 
+    def _settle_bag_overflow(self) -> None:
+        """用/丢之后若已回到容量以内，解除 bag_overflow 决策（两条路径共用）。"""
+        st = self.state
+        if st.get("pending_decision") == "bag_overflow" and not self._over_capacity():
+            st["pending_decision"] = None
+            self._log("背包腾出了空间。")
+
     async def _act_discard(self, payload: dict) -> None:
         """处理 bag_overflow：丢弃物品，直到格数回到容量以内才能继续行动。"""
         st = self.state
@@ -1640,10 +1650,7 @@ class RunEngine:
         self._log(f"你丢掉了 {self.cfg.item(iid)['name']}。")
 
         # 丢弃后若仍超容量，保持决策继续让玩家丢；回到容量内则解除
-        if st.get("pending_decision") == "bag_overflow":
-            if not self._over_capacity():
-                st["pending_decision"] = None
-                self._log("背包腾出了空间。")
+        self._settle_bag_overflow()
 
     async def _kill_enemy(self, enemy: dict, ranged: bool) -> None:
         st = self.state
@@ -1927,7 +1934,12 @@ class RunEngine:
             )
             parts.append(f"体力 +{st['stamina'] - before}")
         if item.get("infection"):
-            old, new = self._add_infection(int(item["infection"]))
+            amount = int(item["infection"])
+            # 铁胃类天赋：抑制类消耗品（负感染）每份多减 food_infection_bonus。
+            # 只放大削减、不动正感染（伏特加 +3 的代价不因天赋消失）。
+            if amount < 0:
+                amount -= int(talents.mod(st, "food_infection_bonus", 0))
+            old, new = self._add_infection(amount)
             delta = new - old
             parts.append(f"感染 {delta:+d}")
             line = inf_mod.describe_change(self.cfg, old, new)

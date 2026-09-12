@@ -18,6 +18,7 @@
 #   hp_max            生命上限        combat.player_profile / apply 即时生效
 #   start_items       开局物资        apply 即时生效 [id, 数量]
 #   infection_taken_mult  感染乘数    run_service._add_infection
+#   food_infection_bonus 吃抑制类物品感染多减1（run_service._act_use，仅负感染生效）
 #   descend_heal_add  下楼回血加成    _descend
 #   melee_dmg_pct / ranged_dmg_pct    combat.player_profile
 #   crit / acc / eva / armor          combat.player_profile
@@ -85,9 +86,9 @@ talents:
 
   - id: iron_stomach
     name: 铁胃
-    desc: 开局携带 2 个罐头，吃 infection 抑制更好
+    desc: 开局携带 2 个罐头，吃的每份感染抑制 +1
     weight: 6
-    mods: {start_items: [[canned, 2]]}
+    mods: {start_items: [[canned, 2]], food_infection_bonus: 1}
 
   # ---------------- 输出 ----------------
   - id: brute_strength

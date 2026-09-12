@@ -28,6 +28,9 @@ async def _new_run(cfg):
     eng = await RunEngine.new_run(cfg, None)
     if eng.state.get("pending_decision") == "talent":
         await eng.act("talent", {"index": 0})
+    # 隔离随机开局天赋：快速凝血（+2 绷带）等会打破「裸开局基线」断言
+    # （曾致 test_merchant_plagued_full_price_when_low 1/20 偶发失败）
+    eng.state["talents"] = []
     return eng
 
 

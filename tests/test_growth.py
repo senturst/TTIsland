@@ -281,6 +281,70 @@ def test_start_items_talent_grants_items():
     assert hits >= 2, f"120 局只抽到 {hits} 次 quick_clot，抽样不足"
 
 
+def test_iron_stomach_food_infection_bonus():
+    """铁胃：吃抑制类消耗品（负感染）每份多减 food_infection_bonus。
+
+    长期缺陷：desc 承诺「吃 infection 抑制更好」但 mods 里只有 start_items，
+    第二效果从未被任何代码消费。现在补上消费点（_act_use）。
+    规则：只放大削减（罐头 -2→-3），正感染代价不变（伏特加 +3 仍是 +3）。
+    """
+    cfg = get_config()
+
+    async def run():
+        from app.core import loot
+        eng = await _new_run(cfg)
+        st = eng.state
+
+        async def eat_clean(iid):
+            """脱离战斗后使用物品：_act_use 战斗中会触发敌人回合，
+            怪物命中附带的感染会污染断言，这里先清场。"""
+            st["in_combat"] = False
+            st["enemies"] = []
+            await eng._act_use({"item": iid})
+
+        # 基线：无天赋吃罐头 -2
+        st["talents"] = []
+        loot.grant(cfg, st, "canned", 1)
+        st["infection"] = 20
+        await eat_clean("canned")
+        assert st["infection"] == 18, f"无天赋吃罐头应 -2，实际 {st['infection']}"
+
+        # 有铁胃：-2-1 = -3
+        st["talents"] = [
+            {"id": "iron_stomach", "name": "铁胃", "desc": "",
+             "mods": {"food_infection_bonus": 1}}
+        ]
+        loot.grant(cfg, st, "canned", 1)
+        st["infection"] = 20
+        await eat_clean("canned")
+        assert st["infection"] == 17, f"铁胃吃罐头应 -3，实际 {st['infection']}"
+
+        # 叠两层：求和 = +2，罐头 -4
+        st["talents"] = [
+            {"id": "iron_stomach", "name": "铁胃", "desc": "",
+             "mods": {"food_infection_bonus": 1}},
+            {"id": "iron_stomach", "name": "铁胃", "desc": "",
+             "mods": {"food_infection_bonus": 1}},
+        ]
+        loot.grant(cfg, st, "canned", 1)
+        st["infection"] = 20
+        await eat_clean("canned")
+        assert st["infection"] == 16, f"双层铁胃吃罐头应 -4，实际 {st['infection']}"
+
+        # 正感染代价不放大：止痛药 +1 仍是 +1
+        st["talents"] = [
+            {"id": "iron_stomach", "name": "铁胃", "desc": "",
+             "mods": {"food_infection_bonus": 1}}
+        ]
+        loot.grant(cfg, st, "painkiller", 1)
+        st["infection"] = 20
+        await eat_clean("painkiller")
+        assert st["infection"] == 21, f"正感染不应被铁胃改变，实际 {st['infection']}"
+        return True
+
+    assert asyncio.run(run())
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

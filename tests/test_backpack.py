@@ -136,6 +136,39 @@ def test_discard_skip_keeps_blocking():
     asyncio.run(run())
 
 
+def test_use_consumable_back_to_cap_releases_decision():
+    """bag_overflow 时「用了」消耗品腾出格子 → 决策应解除。
+
+    修复前：只有丢弃路径（_act_discard）会检查解除，use 路径用完物品
+    回到容量以内后 pending_decision 卡死在 bag_overflow——界面关不掉，
+    必须再丢一件才能继续。走 eng.act 完整派发覆盖真实入口。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        eng.state["talents"] = []  # 隔离随机天赋（快速凝血会多发绷带）
+        _fill_to_cap(eng, cfg)
+        eng._acquire("crowbar", 1, durability=20)
+        assert eng.state["pending_decision"] == "bag_overflow"
+
+        # 开局自带 1 个绷带：用堆叠物"用了"替代丢弃（整份消耗才腾格）
+        from app.core import loot as _loot
+        assert _loot.count(eng.state, "bandage") >= 1, "前提：开局有绷带"
+        before = _loot.count(eng.state, "bandage")
+
+        # 脱离战斗：_act_use 战斗中会触发敌人回合，怪物命中附带感染会干扰
+        eng.state["in_combat"] = False
+        eng.state["enemies"] = []
+        await eng.act("use", {"item": "bandage"})
+
+        assert _loot.count(eng.state, "bandage") == before - 1, "应真的用掉 1 个绷带"
+        assert eng.state["pending_decision"] is None, \
+            "用完回到容量内应解除决策（修复前卡死在 bag_overflow）"
+
+    asyncio.run(run())
+
+
 def test_packrat_talent_adds_capacity():
     """背包客天赋应让容量 +5。"""
     cfg = get_config()

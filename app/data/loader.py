@@ -365,7 +365,8 @@ class GameConfig:
             # 噪音（noise）
             "noise_decay_mult", "noise_add_delta", "horde_threshold_delta",
             # 感染 / 逃跑 / 掉落 / 修理 / 计分
-            "infection_taken_mult", "flee_bonus", "loot_extra_roll_chance",
+            "infection_taken_mult", "food_infection_bonus",
+            "flee_bonus", "loot_extra_roll_chance",
             "ammo_scav_mult", "repair_bonus", "trinket_score_mult",
             # 特殊键：开局物资与弹药（talents.apply / new_run 消费）
             "start_items", "ammo_start",
