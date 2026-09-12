@@ -1709,14 +1709,27 @@ class RunEngine:
             for enemy in alive:
                 await self._player_hit_one(enemy, pp, ranged, shot_meta)
         elif shots > 1:
-            # 连射：每发独立 roll 命中与伤害（复用单敌结算）。当前目标倒下后
-            # 剩余发数自动转向下一个敌人——扫射不看弹匣里的仇恨。
+            # 连射：每发独立 roll 命中与伤害（复用单敌结算）。
+            # P9 目标选择：点名的目标先吃满弹幕，倒下后剩余发数顺延其余敌人
+            # （未点名 = 维持旧行为，从第一个存活敌人开始）。
+            tgt = payload.get("target")
+            ordered = alive
+            if (
+                isinstance(tgt, int)
+                and 0 <= tgt < len(st["combat"]["enemies"])
+                and st["combat"]["enemies"][tgt]["hp"] > 0
+            ):
+                first = st["combat"]["enemies"][tgt]
+                ordered = [first] + [e for e in alive if e is not first]
             self._log(f"你扣住扳机扫射，{wcfg['name']}倾泻出 {shots} 发弹药！")
-            for _ in range(shots):
-                alive = [e for e in st["combat"]["enemies"] if e["hp"] > 0]
-                if not alive:
+            fired = 0
+            for e in ordered:
+                if fired >= shots:
                     break
-                await self._player_hit_one(alive[0], pp, ranged, shot_meta)
+                if e["hp"] <= 0:
+                    continue
+                await self._player_hit_one(e, pp, ranged, shot_meta)
+                fired += 1
         else:
             target = payload.get("target")
             enemy = enemies[0]

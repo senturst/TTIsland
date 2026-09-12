@@ -458,7 +458,10 @@ export function renderPack(onAction) {
 
     if (canAct) {
       const actionId = it.usable ? "use" : "equip";
-      node.title = it.usable ? `使用 ${it.name}` : `换上 ${it.name}`;
+      // 悬停显示效果与描述（名字卡片上本来就有）；无描述才退回动作+名字
+      node.title = it.desc
+        ? `${it.desc}（点击${it.usable ? "使用" : "装备"}）`
+        : `${it.usable ? "使用" : "装备"} ${it.name}`;
       // 只有命令区没有占用 C（前 3 个位置）时才显示 C 徽标
       if ((state.actions || []).length < 3) {
         const k = document.createElement("kbd");
