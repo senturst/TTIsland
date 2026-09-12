@@ -140,10 +140,17 @@ class RunEngine:
     # 感染 → 最大生命
     # ------------------------------------------------------------------
     def _sync_hp_max(self) -> None:
-        """感染会压低最大生命，改完感染度必须同步一次，否则数值是死的。"""
+        """感染会压低最大生命，改完感染度必须同步一次，否则数值是死的。
+
+        修复：同步必须**保留天赋的生命加成**（强健体质 +5 之类）——
+        旧实现只按基础生命 × 感染系数重算，任何一次感染变动都会把
+        天赋加成洗掉（用户报告：感染度高/感冒后加成消失）。
+        感染惩罚按比例作用在「基础+天赋」的总和上。
+        """
         st = self.state
         inf = inf_mod.modifiers(self.cfg, st["infection"])
         base = int(self.cfg.balance["player"]["hp"])
+        base += int(talents.mod(st, "hp_max", 0))
         new_max = max(1, int(round(base * (1.0 + float(inf["hp_max_pct"])))))
         if new_max != st["hp_max"]:
             st["hp_max"] = new_max

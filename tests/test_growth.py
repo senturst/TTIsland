@@ -345,6 +345,40 @@ def test_iron_stomach_food_infection_bonus():
     assert asyncio.run(run())
 
 
+def test_hp_max_talent_survives_infection_sync():
+    """强健体质类生命加成不再被感染同步洗掉。
+
+    修复前：_sync_hp_max 只按「基础生命 × 感染系数」重算——任何一次感染
+    变动（含 L3 医院每 2 回合的环境感染）都会把 hp_max 天赋加成洗掉。
+    修复后：上限 =（基础+天赋）× 感染系数，天赋按比例保留。
+    """
+    cfg = get_config()
+
+    async def run():
+        from app.core import infection as inf_mod
+
+        eng = await _new_run(cfg)
+        st = eng.state
+        base = int(cfg.balance["player"]["hp"])
+        st["talents"] = [
+            {"id": "tough", "name": "强健体质", "desc": "", "mods": {"hp_max": 5}}
+        ]
+        st["hp_max"] = base + 5
+        st["hp"] = base + 5
+
+        eng._add_infection(80)
+        expected = max(1, int(round(
+            (base + 5) * (1 + float(inf_mod.modifiers(cfg, st["infection"])["hp_max_pct"]))
+        )))
+        assert st["hp_max"] == expected, \
+            f"高感染时上限应=（基础+天赋）×系数：期望 {expected}，实际 {st['hp_max']}"
+
+        eng._add_infection(-80)
+        assert st["hp_max"] == base + 5, f"治愈后应恢复基础+天赋，实际 {st['hp_max']}"
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
