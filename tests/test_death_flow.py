@@ -225,6 +225,42 @@ def test_armor_legacy_full_with_instance_max():
     asyncio.run(run())
 
 
+def test_boss_cannot_be_fled_and_reentry_retriggers():
+    """Boss 战不可逃跑（软锁修复）：逃跑被拒、战斗保持；重进房间可重新接敌。
+
+    修复前：逃跑只拦精英不拦 Boss——逃掉暴君后撤离点没有再战入口，对局卡死。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["depth"] = 5
+        st["boss_alive"] = True
+        st["boss_seen"] = True
+        st["room"]["boss"] = True
+        st["combat"] = {"enemies": [combat.make_enemy(cfg, "tyrant_t03", 5)], "round": 0}
+        st["in_combat"] = True
+        st["stamina"] = 20
+
+        await eng._act_flee({})
+        assert st["in_combat"] is True, "Boss 战不可逃跑"
+        assert any("没有退路" in l for l in st["log"]), eng._log if hasattr(eng, "_log") else ""
+
+        # 重进 Boss 房 → 战斗重新触发（兜底已处于逃出状态的旧存档）
+        stairs = next(
+            i for i, r in enumerate(st["level_map"]["rooms"])
+            if r.get("special_kind") == "stairs"
+        )
+        st["in_combat"] = False
+        st["room"] = {"type": "stairs", "name": "撤离点", "idx": stairs}
+        await eng._enter_room(stairs)
+        assert st["in_combat"] is True, "重进 Boss 房应重新接敌"
+        assert st["combat"]["enemies"] and st["combat"]["enemies"][0]["name"] == "暴君 T-03"
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     test_death_offers_legacy_choices()
     print("✓ 死亡后给出遗物选项")
@@ -244,4 +280,6 @@ if __name__ == "__main__":
     print("✓ 持枪挥拳兜底")
     test_armor_legacy_full_with_instance_max()
     print("✓ 护甲继承：满耐久+实例上限")
+    test_boss_cannot_be_fled_and_reentry_retriggers()
+    print("✓ Boss 战不可逃跑 + 重进房间重新接敌")
     print("\n死亡流程回归测试全部通过")

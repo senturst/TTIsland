@@ -625,7 +625,8 @@ class RunEngine:
         if not st.get("boss_alive"):
             self._log("撤离点空着。直升机随时会来。")
             return
-        boss_id = self.cfg.levels_cfg["boss"]["id"]
+        # P8 地区化：Boss 与 flavor 文案按层所属地区取（不再读全局暴君）
+        boss_id = self.cfg.region_boss(self.cfg.region_id_for_level(st["depth"]))
         enemies = combat.spawn_encounter(self.cfg, self.rng, st["depth"], boss=True)
         st["combat"] = {"enemies": enemies, "round": 0}
         st["in_combat"] = True
@@ -2051,6 +2052,11 @@ class RunEngine:
         # 守门精英不可逃跑：楼梯口就一条路，绕是绕不过去的
         if any(e.get("elite") for e in alive):
             self._log("它堵着楼梯口——身后就是绝路，你没地方可退。")
+            return
+        # Boss 不可逃跑（用户报告的软锁）：暴君/葬列守着撤离点，战斗只在
+        # 进房时触发——逃掉就再也没入口，对局直接卡死。正面击杀是唯一解。
+        if any(e.get("boss") for e in alive):
+            self._log("它堵在你和直升机之间。这条路上，没有退路。")
             return
         fastest = max((e.get("speed", 5) for e in alive), default=5)
         agi = combat.player_agility(st) + int(talents.mod(st, "flee_bonus", 0)) // 5
