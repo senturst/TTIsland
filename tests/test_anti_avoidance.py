@@ -281,7 +281,45 @@ def test_clearing_real_horde_cuts_noise():
     asyncio.run(run())
 
 
+def test_region2_noise_cap_30():
+    """P8 地区 2 远程主场：噪音上限 30（用户拍板）。
+
+    add 封顶 30；尸潮触发线/平息线/衰减按上限同比例放大（×3）——
+    改的是"可以更吵"的预算，不是尸潮频率。地区 1 行为不变。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["depth"] = 6
+        st["noise"] = 28.0
+        noise.add(cfg, st, 5)
+        assert st["noise"] == 30.0, f"地区 2 噪音上限应 30，实际 {st['noise']}"
+        st["noise"] = 5.0
+        noise.add(cfg, st, 3)
+        assert st["noise"] == 8.0, "普通叠加不受地区影响"
+
+    asyncio.run(run())
+
+    # 触发线缩放：地区 2 = 8×3 = 24；地区 1 的防线在 add 封顶（上限 10）
+    st2 = {"depth": 6, "noise": 24.0, "horde": False}
+    assert noise.check_horde(cfg, st2) is True, "地区 2 触发线应缩放为 24"
+    assert st2["horde"] is True
+    st3 = {"depth": 6, "noise": 23.9, "horde": False}
+    assert noise.check_horde(cfg, st3) is False, "地区 2 触发线下不应触发"
+    st4 = {"depth": 1, "noise": 9.0, "horde": False}
+    assert noise.check_horde(cfg, st4) is True, "地区 1 触发线仍是 8"
+
+    # 上限/缩放查询
+    assert noise.noise_max(cfg, 6) == 30.0
+    assert noise.noise_max(cfg, 1) == 10.0
+    assert abs(noise.region_scale(cfg, 6) - 3.0) < 1e-9
+
+
 if __name__ == "__main__":
+    test_region2_noise_cap_30()
+    print("✓ 地区 2 噪音上限 30（触发线×3）")
     test_gatekeeper_config_exists()
     print("✓ 守门者配置完整")
     test_stairs_spawns_elite()

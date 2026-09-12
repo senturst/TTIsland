@@ -13,7 +13,29 @@ def value(state: dict) -> float:
     return float(state.get("noise", 0.0))
 
 
-def add(cfg: GameConfig, state: dict, key_or_amount: str | float) -> float:
+def noise_max(cfg: GameConfig, depth: int) -> float:
+    """该层的噪音上限：按地区配置（regions.yaml 的 noise_max），缺省用全局 max。
+
+    P8：地区 2「军事检疫营地」是远程枪械的主场，noise_max = 30（用户拍板）。
+    """
+    ncfg = cfg.balance["noise"]
+    base = float(ncfg.get("max", 10) or 10)
+    region = cfg.region_for_level(depth)
+    rm = region.get("noise_max")
+    return float(rm) if rm else base
+
+
+def region_scale(cfg: GameConfig, depth: int) -> float:
+    """地区噪音缩放系数（上限 / 全局基线）。
+
+    上限放大时，尸潮触发线、平息线、自然衰减同比例放大——
+    改的是"远程可以更吵"的预算，不是尸潮出现的频率。
+    """
+    base = float(cfg.balance["noise"].get("max", 10) or 10)
+    return noise_max(cfg, depth) / base if base else 1.0
+
+
+def add(cfg: GameConfig, state: dict, key_or_amount: float | str) -> float:
     """按来源键或绝对值增加噪音，返回增量。"""
     ncfg = cfg.balance["noise"]
     if isinstance(key_or_amount, str):
@@ -24,7 +46,8 @@ def add(cfg: GameConfig, state: dict, key_or_amount: str | float) -> float:
         amount = float(key_or_amount)
     amount = max(0.0, amount)
     # 第 4 层：噪音有基线，且自然衰减减半（由 decay 处理基线）
-    state["noise"] = min(float(ncfg["max"]), value(state) + amount)
+    cap = noise_max(cfg, int(state.get("depth", 1)))
+    state["noise"] = min(cap, value(state) + amount)
     return amount
 
 
@@ -35,8 +58,10 @@ def decay(cfg: GameConfig, state: dict, level_theme: dict) -> float:
     mods = level_theme.get("modifiers", {})
     base *= float(mods.get("noise_decay_mult", 1.0))
     base *= float(talents.mod(state, "noise_decay_mult", 1.0))
+    # 地区缩放：上限 ×3 的地区，衰减也 ×3（预算变大，节奏不变）
+    base *= region_scale(cfg, int(state.get("depth", 1)))
 
-    floor = float(mods.get("noise_floor", 0))
+    floor = float(mods.get("noise_floor", 0)) * region_scale(cfg, int(state.get("depth", 1)))
     new = max(floor, value(state) - base)
     state["noise"] = new
     return new
@@ -47,15 +72,20 @@ def horde_active(state: dict) -> bool:
 
 
 def check_horde(cfg: GameConfig, state: dict) -> bool:
-    """噪音越过阈值触发尸潮；降到解除线以下自动平息。返回本次是否**新触发**。"""
+    """噪音越过阈值触发尸潮；降到解除线以下自动平息。返回本次是否**新触发**。
+
+    触发/平息线按地区缩放（上限 30 的地区，触发线 = 8 × 3 = 24）。
+    """
     ncfg = cfg.balance["noise"]["horde"]
+    scale = region_scale(cfg, int(state.get("depth", 1)))
     v = value(state)
     if state.get("horde"):
-        if v <= float(ncfg["end"]):
+        if v <= float(ncfg["end"]) * scale:
             state["horde"] = False
         return False
-    threshold = float(ncfg["threshold"]) + float(
-        talents.mod(state, "horde_threshold_delta", 0)
+    threshold = (
+        float(ncfg["threshold"]) * scale
+        + float(talents.mod(state, "horde_threshold_delta", 0))
     )
     if v >= threshold:
         state["horde"] = True

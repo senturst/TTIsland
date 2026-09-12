@@ -73,8 +73,14 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
     tab.classList.add("active");
     const name = tab.dataset.tab;
-    if (name === "config") { show($("config-panel")); hide($("players-panel")); }
-    else { hide($("config-panel")); show($("players-panel")); }
+    if (name === "config") {
+      show($("config-panel")); hide($("players-panel")); hide($("stats-panel"));
+    } else if (name === "players") {
+      hide($("config-panel")); show($("players-panel")); hide($("stats-panel"));
+    } else {
+      hide($("config-panel")); hide($("players-panel")); show($("stats-panel"));
+      loadStats();
+    }
   });
 });
 
@@ -201,5 +207,62 @@ $("player-save").addEventListener("click", async () => {
     setStatus($("player-status"), r.data?.detail || "保存失败", "err");
   }
 });
+
+// ---------------------------------------------------------------------------
+// 数据统计（P8）：死亡分布 + 各层通过率
+// ---------------------------------------------------------------------------
+async function loadStats() {
+  const r = await api("/api/admin/stats");
+  if (!r.ok) {
+    $("stats-summary").textContent = r.data?.detail || "统计读取失败";
+    return;
+  }
+  const d = r.data;
+  $("stats-summary").textContent =
+    `已完结 ${d.total_finished} 局（排除主动放弃 ${d.abandoned_excluded} 局），进行中 ${d.active_now} 局。`;
+
+  const deathsBody = $("deaths-body");
+  deathsBody.textContent = "";
+  if (!d.deaths.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3;
+    td.textContent = "还没有死亡记录。";
+    tr.appendChild(td);
+    deathsBody.appendChild(tr);
+  }
+  for (const row of d.deaths) {
+    const tr = document.createElement("tr");
+    const td1 = document.createElement("td");
+    td1.textContent = row.region;
+    const td2 = document.createElement("td");
+    td2.textContent = `第 ${row.depth} 层`;
+    const td3 = document.createElement("td");
+    td3.textContent = String(row.count);
+    tr.append(td1, td2, td3);
+    deathsBody.appendChild(tr);
+  }
+
+  const prBody = $("passrate-body");
+  prBody.textContent = "";
+  for (const row of d.pass_rates) {
+    const tr = document.createElement("tr");
+    const cells = [
+      `第 ${row.level} 层`,
+      row.region,
+      String(row.reached),
+      String(row.passed),
+      row.rate == null ? "—" : `${(row.rate * 100).toFixed(1)}%`,
+    ];
+    for (const c of cells) {
+      const td = document.createElement("td");
+      td.textContent = c;
+      tr.appendChild(td);
+    }
+    prBody.appendChild(tr);
+  }
+}
+
+$("stats-refresh").addEventListener("click", loadStats);
 
 boot();

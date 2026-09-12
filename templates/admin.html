@@ -28,6 +28,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="config">配置管理</button>
       <button class="tab" data-tab="players">玩家管理</button>
+      <button class="tab" data-tab="stats">数据统计</button>
     </nav>
 
     <!-- 配置 -->
@@ -72,6 +73,29 @@
           <div id="player-status" class="status"></div>
         </div>
       </div>
+    </section>
+
+    <!-- 数据统计（P8）：死亡分布 + 各层通过率（排除主动放弃） -->
+    <section id="stats-panel" class="panel hidden">
+      <div class="row">
+        <h3>死亡分布（地区 · 层）</h3>
+        <button id="stats-refresh" class="ghost">刷新</button>
+      </div>
+      <p class="muted" id="stats-summary">统计口径：只计已完结的局；进行中与主动放弃不计入。</p>
+      <table id="deaths-table">
+        <thead>
+          <tr><th>地区</th><th>层</th><th>死亡次数</th></tr>
+        </thead>
+        <tbody id="deaths-body"></tbody>
+      </table>
+
+      <h3>各层通过率</h3>
+      <table id="passrate-table">
+        <thead>
+          <tr><th>层</th><th>地区</th><th>到达人数</th><th>通过人数</th><th>通过率</th></tr>
+        </thead>
+        <tbody id="passrate-body"></tbody>
+      </table>
     </section>
   </div>
 

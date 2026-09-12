@@ -163,14 +163,15 @@ export function renderHUD() {
   setHTML("c-cash", `💰 ${s.cash ?? 0}`);
   setHTML("c-scrap", `🧱 ${s.scrap ?? 0}`);
 
-  // 噪音
+  // 噪音（上限按地区：地区 2 军事检疫营地 = 30，远程主场）
   const noiseNode = document.getElementById("c-noise");
   if (noiseNode) {
-    const hot = s.noise >= 8 || s.horde;
+    const nMax = s.noiseMax ?? 10;
+    const hot = s.noise >= nMax * 0.8 || s.horde;
     noiseNode.innerHTML = s.horde
-      ? `${hotIcon("⚠️")} 尸潮 ${s.noise}/10`
-      : `${hot ? hotIcon(HUD_ICONS.noise) : iconOf(HUD_ICONS.noise)} 噪音 ${s.noise}/10`;
-    noiseNode.className = "chip" + (s.horde ? " danger" : s.noise >= 6 ? " warn" : "");
+      ? `${hotIcon("⚠️")} 尸潮 ${s.noise}/${nMax}`
+      : `${hot ? hotIcon(HUD_ICONS.noise) : iconOf(HUD_ICONS.noise)} 噪音 ${s.noise}/${nMax}`;
+    noiseNode.className = "chip" + (s.horde ? " danger" : s.noise >= nMax * 0.6 ? " warn" : "");
   }
 
   // 手电（只在黑暗层显示）

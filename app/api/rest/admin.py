@@ -5,6 +5,7 @@
   - 登录 / 登出
   - 配置：列出并读写 configs/ 下所有 YAML（写后触发热重载；非法配置自动回滚到上一版）
   - 玩家：列出所有"存活在玩"（runs.status='active'）的玩家，查看并修改其完整状态与道具
+  - 统计：死亡分布（地区×层）与各层通过率（排除主动放弃，P8）
 """
 from __future__ import annotations
 
@@ -191,3 +192,67 @@ async def update_player(run_id: str, body: PlayerStateIn, _: None = Depends(requ
 
     await db_call(repo.runs.save, run_id, new_state)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# 数据统计（P8）：死亡分布 + 各层通过率
+# ---------------------------------------------------------------------------
+@router.get("/stats")
+async def admin_stats(_: None = Depends(require_admin)) -> dict:
+    """死亡分布（地区×层）与各层通过率。
+
+    口径（用户拍板）：
+      - 只统计**已完结**的局：进行中（active）不算，主动放弃（fled）不算
+      - 通过率与 scripts/sim.py 同口径：到达该层的局中，层数超过它
+        （或从该层撤离成功）的比例
+    """
+    from ...data.loader import get_config
+
+    cfg = get_config()
+    max_level = cfg.max_level
+    rows = await db_call(repo.runs.run_summaries)
+
+    fled = sum(1 for r in rows if r["status"] == "fled")
+    finished = [r for r in rows if r["status"] != "fled" and r["status"] != "active"]
+
+    reached = [0] * (max_level + 1)
+    passed = [0] * (max_level + 1)
+    deaths: dict[tuple[int, int], int] = {}
+    for r in finished:
+        d = min(max(1, int(r["depth"] or 1)), max_level)
+        for lv in range(1, d + 1):
+            reached[lv] += 1
+        if r["status"] == "escaped":
+            passed[max_level] += 1
+        for lv in range(1, d):
+            passed[lv] += 1
+        if r["status"] in ("dead", "zombified"):
+            rid = cfg.region_id_for_level(d)
+            key = (rid, d)
+            deaths[key] = deaths.get(key, 0) + 1
+
+    deaths_list = [
+        {
+            "region": cfg.regions[rid]["name"],
+            "depth": d,
+            "count": n,
+        }
+        for (rid, d), n in sorted(deaths.items(), key=lambda kv: (-kv[1], kv[0][1]))
+    ]
+    pass_rates = [
+        {
+            "level": lv,
+            "region": cfg.region_for_level(lv)["name"],
+            "reached": reached[lv],
+            "passed": passed[lv],
+            "rate": round(passed[lv] / reached[lv], 4) if reached[lv] else None,
+        }
+        for lv in range(1, max_level + 1)
+    ]
+    return {
+        "total_finished": len(finished),
+        "abandoned_excluded": fled,
+        "active_now": sum(1 for r in rows if r["status"] == "active"),
+        "deaths": deaths_list,
+        "pass_rates": pass_rates,
+    }

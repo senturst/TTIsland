@@ -3109,6 +3109,7 @@ class RunEngine:
                 "infection": st["infection"],
                 "infection_band": band,
                 "noise": round(noise.value(st), 1),
+                "noise_max": noise.noise_max(self.cfg, st["depth"]),
                 "horde": bool(st.get("horde")),
                 "flashlight": st.get("flashlight"),
                 "depth": st["depth"],

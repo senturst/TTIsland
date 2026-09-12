@@ -82,6 +82,7 @@ export function applyServerState(data) {
       infection: st.infection ?? s.infection,
       infectionBand: st.infection_band ?? "",
       noise: st.noise ?? 0,
+      noiseMax: st.noise_max ?? s.noiseMax ?? 10,
       horde: !!st.horde,
       flashlight: st.flashlight ?? null,
       depth: st.depth ?? s.depth,

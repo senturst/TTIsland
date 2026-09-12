@@ -166,7 +166,20 @@ def leaderboard(by: str = "score", limit: int = 20) -> list[dict[str, Any]]:
     return out
 
 
+def run_summaries() -> list[dict[str, Any]]:
+    """全部局的 (status, depth) 摘要——管理后台统计用。
+
+    含进行中与主动放弃（fled）的行：口径过滤由调用方做，
+    这样"排除了多少放弃局"也能展示出来。
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT status, depth FROM runs ORDER BY started_at"
+        ).fetchall()
+    return [{"status": r[0], "depth": r[1]} for r in rows]
+
+
 __all__ = [
     "create", "get_active", "get", "load_state", "save", "finish",
-    "leaderboard", "new_run_id", "list_active", "expire_stale",
+    "leaderboard", "new_run_id", "list_active", "expire_stale", "run_summaries",
 ]
