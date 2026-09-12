@@ -1713,14 +1713,14 @@ class RunEngine:
             # P9 目标选择：点名的目标先吃满弹幕，倒下后剩余发数顺延其余敌人
             # （未点名 = 维持旧行为，从第一个存活敌人开始）。
             tgt = payload.get("target")
-            ordered = alive
+            ordered = [e for e in st["combat"]["enemies"] if e["hp"] > 0]
             if (
                 isinstance(tgt, int)
                 and 0 <= tgt < len(st["combat"]["enemies"])
                 and st["combat"]["enemies"][tgt]["hp"] > 0
             ):
                 first = st["combat"]["enemies"][tgt]
-                ordered = [first] + [e for e in alive if e is not first]
+                ordered = [first] + [e for e in ordered if e is not first]
             self._log(f"你扣住扳机扫射，{wcfg['name']}倾泻出 {shots} 发弹药！")
             fired = 0
             for e in ordered:

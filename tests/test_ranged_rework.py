@@ -383,6 +383,34 @@ def test_speed_loader_talent():
     asyncio.run(run())
 
 
+def test_burst_targets_selected_enemy():
+    """扫射优先命中点选的目标；目标存活时其他敌人不挨弹。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        e1 = C.make_enemy(cfg, "walker", 1)
+        e1["hp"] = e1["hp_max"] = 200
+        e2 = C.make_enemy(cfg, "walker", 1)
+        e2["hp"] = e2["hp_max"] = 200
+        st["in_combat"] = True
+        st["combat"] = {"enemies": [e1, e2]}
+        st["noise"] = 0
+        _equip(cfg, eng, "smg")
+        clip = await _load(eng, "ammo_t2", 30)
+        _no_drops(eng)
+
+        # 点名第二只（战斗列表索引 1）：全部发数优先打它
+        await eng._act_shoot({"target": 1})
+
+        assert e2["hp"] < 200, "点选目标应先挨弹"
+        assert e1["hp"] == 200, "目标存活时其他敌人不应被波及"
+        assert int(st["weapon"].get("clip_count") or 0) < 30, "应消耗弹匣"
+
+    asyncio.run(run())
+
+
 def test_ammo_not_legacy():
     """弹药 T1-T6 都不进遗物池（legacy_exclude_kinds 含 ammo 类）。"""
     cfg = get_config()
@@ -417,6 +445,8 @@ if __name__ == "__main__":
     print("✓ 快速装填天赋（不触发敌人回合）")
     test_ammo_dmg_mult_scaling()
     print("✓ 弹药伤害加成按弹种生效（四舍五入）")
+    test_burst_targets_selected_enemy()
+    print("✓ 扫射优先命中点选目标")
     test_ammo_not_legacy()
     print("✓ 弹药不进遗物池")
     print("\nP9 弹匣系统回归测试全部通过")

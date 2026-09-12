@@ -131,7 +131,7 @@ monsters:
     dmg: [6, 9]
     acc: 75
     eva: 5
-    armor: 2
+    armor: 1
     speed: 6
     archetype: boss
     boss: true
@@ -256,14 +256,14 @@ monsters:
     burst: [3, 6]
     abilities:
       - id: marshal_charge
-        name: 装甲冲撞
+        name: 持盾冲撞
         cooldown: 4
-        dmg: [10, 15]
+        dmg: [7, 11]
         noise: 5
       - id: marshal_stomp
-        name: 尸潮践踏
+        name: 手斧处决
         cooldown: 6
-        dmg: [7, 11]
+        dmg: [10, 15]
         noise: 8
     desc: 它生前指挥过整条封锁线。现在它指挥的只有尸潮——而尸潮对它唯命是从。
 
