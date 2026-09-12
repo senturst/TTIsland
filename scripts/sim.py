@@ -22,6 +22,7 @@ os.environ.setdefault("LLM_ENABLED", "false")
 
 forced_talent: str | None = None
 trade_policy: bool = False   # --trade：商人房卖纪念品并购入防具/药品/武器
+from_level: int = 0          # --from N：从第 N 层带代表性装备开局（地区全程模拟用）
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -227,6 +228,28 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
 
 async def play_one(cfg, legacy=None, max_steps: int = 3000) -> dict:
     engine = await RunEngine.new_run(cfg, legacy)
+    if from_level:
+        # 地区全程模拟：带上"撤离带装"的代表配置（t3 枪+甲+医疗+对口弹药）
+        # 直接从第 from_level 层开局——跳过前面地区的累积，单独量该地区的通过率
+        st = engine.state
+        if st.get("pending_decision") == "talent":
+            await engine.act("talent", {"index": 0})
+        from app.core import loot as _loot
+
+        w_id, a_id = "silenced_smg", "riot_gear"
+        st["weapon"] = {
+            "id": w_id,
+            "durability": int(cfg.item(w_id).get("durability", 0) or 0) or None,
+        }
+        st["armor"] = {
+            "id": a_id,
+            "durability": int(cfg.item(a_id).get("durability", 0) or 0),
+        }
+        st["inventory"] = [{"id": "bandage", "qty": 3}]
+        _loot.grant(cfg, st, cfg.item(w_id)["ammo_type"],
+                    int(cfg.balance["player"]["ammo_start"]))
+        st["depth"] = from_level
+        await engine._enter_level(from_level)
     steps = 0
     while (
         engine.state["status"] == "active" or engine.state.get("pending_decision")
@@ -460,9 +483,12 @@ if __name__ == "__main__":
     ap.add_argument("--talents", action="store_true", help="逐条测量每个天赋的强度")
     ap.add_argument("--trade", action="store_true",
                     help="商人房策略：卖纪念品（婚戒/身份牌/全家福），按防具→药品→武器购买")
+    ap.add_argument("--from", dest="from_level", type=int, default=0,
+                    help="从第 N 层带代表性撤离装开局（地区全程模拟，如 --from 6）")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     trade_policy = args.trade
+    from_level = args.from_level
 
     if args.talents:
         asyncio.run(talent_audit(get_config(), max(60, args.n // 3)))

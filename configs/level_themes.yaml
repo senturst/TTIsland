@@ -61,7 +61,7 @@ levels:
     subtitle: 二层 · 病毒培养区
     brief: 这里曾是最后一个还在运转的地方。也正因如此，这里的空气最脏。
     mechanism: 高危污染区
-    mechanism_desc: 30% 的房间是高危区，进入 +8 感染，但医疗掉落 ×3。整个楼层每回合 +1 感染——培养区的空气本身就在侵蚀你。要不要赌，取决于你的抗生素还剩几支。
+    mechanism_desc: 30% 的房间是高危区，进入 +8 感染，但医疗掉落 ×3。整个楼层每 2 回合 +1 感染——培养区的空气本身就在侵蚀你。要不要赌，取决于你的抗生素还剩几支。
     entry_text: 走廊两侧堆着来不及运走的尸袋。墙上的指示牌还亮着一点微光。
     exit_text: 你从医院后门出来，正对着商场的卸货区。
     modifiers:
@@ -69,6 +69,7 @@ levels:
       hazmat_infection: 8
       hazmat_medical_bonus: 3
       infection_per_turn: 1
+      infection_turn_interval: 2
     on_enter_level: {}
     zombie_density: 0.88
     hooks: [hazmat_zone]

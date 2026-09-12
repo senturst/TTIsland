@@ -1149,7 +1149,11 @@ class RunEngine:
         slots = mcfg.get("shop_slots", {}) or {}
         out: list[dict] = []
         for _ in range(int(slots.get("weapon", 0))):
-            pool = [w["id"] for w in cfg.items_cfg["weapons"] if w["id"] != "crowbar"]
+            # 拳头（weight 0）任何渠道都不可获得——兜底近战不是商品
+            pool = [
+                w["id"] for w in cfg.items_cfg["weapons"]
+                if w["id"] != "crowbar" and int(w.get("weight", 0) or 0) > 0
+            ]
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
         for _ in range(int(slots.get("gear", 0))):
@@ -1510,8 +1514,11 @@ class RunEngine:
             found.append(loot.describe(cfg, iid, qty))
 
     def _roll_weapon(self, found: list[str]) -> None:
-        """枪店类房间的武器掉落。"""
-        pool = [w for w in self.cfg.items_cfg["weapons"] if w["id"] != "crowbar"]
+        """枪店类房间的武器掉落。拳头（weight 0）不可掉落。"""
+        pool = [
+            w for w in self.cfg.items_cfg["weapons"]
+            if w["id"] != "crowbar" and int(w.get("weight", 0) or 0) > 0
+        ]
         if not pool:
             return
         w = self.rng.weighted_choice(pool, [x.get("weight", 10) for x in pool])

@@ -696,6 +696,27 @@ def test_field_repair_outside_merchant():
     asyncio.run(run())
 
 
+def test_fists_unobtainable():
+    """拳头任何渠道不可获得：商店与武器掉落池全部过滤 weight≤0 的武器。"""
+    cfg = get_config()
+    fists = next(w for w in cfg.items_cfg["weapons"] if w["id"] == "fists")
+    assert int(fists.get("weight", 0) or 0) == 0, "拳头配置 weight 必须为 0"
+
+    async def run():
+        eng = await _new_run(cfg)
+        mcfg = cfg.balance.get("merchant", {})
+        for _ in range(200):
+            entries = eng._roll_shop(mcfg, 1.0)
+            assert all(e["id"] != "fists" for e in entries), "商店不得出现拳头"
+        # 武器掉落池：_roll_weapon 直接采集入包，采 100 次不应获得拳头
+        from app.core import loot as _loot
+        for _ in range(100):
+            eng._roll_weapon([])
+        assert _loot.count(eng.state, "fists") == 0, "武器掉落不得出现拳头"
+
+    asyncio.run(run())
+
+
 def test_armor_repair_reduces_max_durability():
     """修甲每修一次耐久上限 −1；修满那一刀的溢出被钳掉；修武器不影响上限。"""
     cfg = get_config()
@@ -736,6 +757,8 @@ def test_armor_repair_reduces_max_durability():
 
 
 if __name__ == "__main__":
+    test_fists_unobtainable()
+    print("✓ 拳头任何渠道不可获得")
     test_merchant_repair_consumes_scrap_and_restores_durability()
     print("✓ 商人修复逐点耗废料且可修满不降上限")
     test_merchant_repair_insufficient_scrap_is_noop()

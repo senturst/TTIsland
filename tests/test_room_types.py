@@ -306,24 +306,31 @@ def test_mapgen_can_produce_new_rooms():
 
 
 def test_hospital_infection_per_turn():
-    """L3 中心医院：每个玩家行动 tick +1 感染（infection_per_turn 主题键）。
+    """L3 中心医院：每 2 回合 +1 感染（infection_per_turn + infection_turn_interval）。
 
-    医院加压（用户拍板：旧版只有 hazmat 房太弱）；环境感染走 core 直加
-    （不吃 infection_taken_mult，与 hazmat 同口径），生命上限由引擎 tick 后同步。
+    医院加压（用户拍板：旧版只有 hazmat 房太弱；后调整为每 2 回合计）。
+    环境感染走 core 直加（不吃 infection_taken_mult，与 hazmat 同口径）。
     """
     from app.core import level_rules
 
     cfg = get_config()
     theme = cfg.level_theme(3)
-    assert int(theme["modifiers"].get("infection_per_turn", 0)) == 1, \
+    m = theme["modifiers"]
+    assert int(m.get("infection_per_turn", 0)) == 1, \
         "L3 中心医院应配 infection_per_turn: 1"
+    assert int(m.get("infection_turn_interval", 1)) == 2, \
+        "L3 感染应为每 2 回合一次"
 
     st = {"depth": 3, "infection": 10, "turn": 0}
-    level_rules.tick_turn(cfg, st)
-    assert st["infection"] == 11, f"L3 每回合应 +1 感染，实际 {st['infection']}"
+    level_rules.tick_turn(cfg, st)   # turn 1：间隔内不加
+    assert st["infection"] == 10, "第 1 回合不应加感染"
+    level_rules.tick_turn(cfg, st)   # turn 2：+1
+    level_rules.tick_turn(cfg, st)   # turn 3：间隔内不加
+    level_rules.tick_turn(cfg, st)   # turn 4：+1
+    assert st["infection"] == 12, f"每 2 回合 +1，4 回合应共 +2，实际 {st['infection']}"
 
     # 非 L3 不受影响
-    st2 = {"depth": 1, "infection": 10, "turn": 0}
+    st2 = {"depth": 1, "infection": 10, "turn": 2}
     level_rules.tick_turn(cfg, st2)
     assert st2["infection"] == 10, "L1 不应有每回合感染"
 

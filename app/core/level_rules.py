@@ -117,14 +117,17 @@ def tick_turn(cfg: GameConfig, state: dict) -> list[str]:
         state["hp"] -= int(inf["dot_per_turn"])
         lines.append(f"高烧灼烧着你的身体。（HP −{int(inf['dot_per_turn'])}）")
 
-    # 主题：每回合感染（L3 中心医院 · 病毒培养区，infection_per_turn）。
-    # 与 hazmat 同口径走 core 直加（环境感染不是攻击，不吃 infection_taken_mult）；
-    # 生命上限同步由引擎在 tick 后统一执行。静默生效——HUD 感染条可见，
-    # 不逐回合刷日志。
-    if m.get("infection_per_turn"):
-        from .infection import add as inf_add
+    # 主题：每 N 回合感染（L3 中心医院 · 病毒培养区，infection_per_turn +
+    # infection_turn_interval）。与 hazmat 同口径走 core 直加（环境感染不是
+    # 攻击，不吃 infection_taken_mult）；生命上限同步由引擎在 tick 后统一
+    # 执行。静默生效——HUD 感染条可见，不逐回合刷日志。
+    inf_amount = int(m.get("infection_per_turn", 0) or 0)
+    if inf_amount:
+        interval = max(1, int(m.get("infection_turn_interval", 1) or 1))
+        if state.get("turn", 0) % interval == 0:
+            from .infection import add as inf_add
 
-        inf_add(cfg, state, int(m["infection_per_turn"]))
+            inf_add(cfg, state, inf_amount)
 
     # 撤离倒计时
     if state.get("evac_countdown") is not None:
