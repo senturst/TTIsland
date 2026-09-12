@@ -21,6 +21,7 @@ from pathlib import Path
 os.environ.setdefault("LLM_ENABLED", "false")
 
 forced_talent: str | None = None
+trade_policy: bool = False   # --trade：商人房卖纪念品并购入防具/药品/武器
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -83,6 +84,44 @@ def choose(engine: RunEngine) -> tuple[str, dict]:
         if inv:
             return "discard", {"choice": "drop", "item": inv[0]["id"]}
         return "status", {}
+
+    # 商人房策略（--trade）：卖纪念品换现金 → 按 防具→药品→武器 消费 → 离开。
+    # 每个行动只做一件事（卖一件/买一件），行动循环会反复进来直到走完流程。
+    # 已离开信号用 merchant_left——st["room"] 镜像的 resolved 不会原地更新。
+    if trade_policy:
+        m = st.get("room", {}).get("merchant")
+        if m and not st["room"].get("merchant_left"):
+            for tid in ("wedding_ring", "dog_tag", "photo"):
+                if loot.count(st, tid) > 0:
+                    return "merchant", {"choice": "sell", "item": tid}
+            cash = loot.count(st, "cash")
+            shop = m.get("shop") or []
+            affordable = [
+                s for s in shop
+                if not s.get("sold") and cash >= int(s.get("value", 9999))
+            ]
+            if not st.get("armor"):
+                a = next((s for s in affordable if s["kind"] == "armor"), None)
+                if a:
+                    return "merchant", {"choice": "buy", "item": a["id"]}
+            med = next(
+                (s for s in affordable if s["kind"] == "consumable"
+                 and s["id"] in ("bandage", "medkit", "antibiotic")),
+                None,
+            )
+            if med:
+                return "merchant", {"choice": "buy", "item": med["id"]}
+            held_tier = int(
+                engine.cfg.item((st.get("weapon") or {}).get("id")).get("tier", 1) or 1
+            )
+            w = next(
+                (s for s in affordable if s["kind"] == "weapon"
+                 and int(engine.cfg.item(s["id"]).get("tier", 1) or 1) > held_tier),
+                None,
+            )
+            if w:
+                return "merchant", {"choice": "buy", "item": w["id"]}
+            return "merchant", {"choice": "leave"}
 
     hp_ratio = st["hp"] / max(1, st["hp_max"])
 
@@ -419,8 +458,11 @@ if __name__ == "__main__":
     ap.add_argument("-n", type=int, default=200, help="模拟局数")
     ap.add_argument("--chain", type=int, default=0, help="额外做几代传承的雪球验证")
     ap.add_argument("--talents", action="store_true", help="逐条测量每个天赋的强度")
+    ap.add_argument("--trade", action="store_true",
+                    help="商人房策略：卖纪念品（婚戒/身份牌/全家福），按防具→药品→武器购买")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
+    trade_policy = args.trade
 
     if args.talents:
         asyncio.run(talent_audit(get_config(), max(60, args.n // 3)))
