@@ -201,6 +201,36 @@ class RunEngine:
         ar["durability"] = max(0, cur - absorbed)
         return absorbed
 
+    def _find_pry_weapon(self):
+        """可撬的武器：优先手持（撬棍），其次背包里的任何带 pry 的武器。
+
+        返回实际参与撬动的实例（手持 dict 或背包条目 dict），没有则 None。
+        """
+        st = self.state
+        held = st.get("weapon") or {}
+        if held.get("id") and self.cfg.item(held["id"]).get("pry"):
+            return held
+        for e in st.get("inventory") or []:
+            if e.get("qty", 0) > 0 and self.cfg.item_kind(e["id"]) == "weapon"                     and self.cfg.item(e["id"]).get("pry"):
+                return e
+        return None
+
+    def _wear_pry_weapon(self, pry_w: dict) -> None:
+        """撬动后的磨损：手持走 _damage_weapon，背包条目直接扣耐久。"""
+        if pry_w is (self.state.get("weapon") or None):
+            self._damage_weapon(1)
+            return
+        if pry_w.get("durability") is not None:
+            pry_w["durability"] = max(0, int(pry_w["durability"]) - 1)
+
+    def _armor_dur_text(self) -> str:
+        """护甲剩余耐久的日志片段；无护甲 / 无耐久概念 → 空串。"""
+        st = self.state
+        ar = st.get("armor") or {}
+        if not ar.get("id") or ar.get("durability") is None:
+            return ""
+        return f"护甲剩余 {int(ar['durability'])}/{self._armor_max(ar)}"
+
     # ==================================================================
     # 起局
     # ==================================================================
@@ -1189,6 +1219,26 @@ class RunEngine:
         for _ in range(int(slots.get("other", 0))):
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
+        # P9 弹药槽：每个商人固定出售一叠「当前地区最低档」弹药
+        # （地区 1 = T1 劣质 / 地区 2 = T4 军用，ammo_by_region 可配）；
+        # 一次性购买（sold 标记），价格为整叠价
+        rid = self.cfg.region_id_for_level(self.state["depth"])
+        ammo_by_region = mcfg.get("ammo_by_region") or {}
+        ammo_id = ammo_by_region.get(str(rid)) or ammo_by_region.get(rid)
+        stack = int(mcfg.get("ammo_stack", 0) or 0)
+        if ammo_id and stack > 0 and ammo_id in self.cfg.items and _region_ok(ammo_id):
+            item = self.cfg.item(ammo_id)
+            stack_price = max(1, int(item.get("value", 1) or 1) * stack)
+            out.append({
+                "id": ammo_id,
+                "name": item["name"],
+                "cost": stack_price,
+                "value": stack_price,
+                "kind": "ammo",
+                "qty": stack,
+                "sold": False,
+                "desc": f"每发伤害 {round(float(item.get('dmg_mult', 1.0) or 1.0) * 100)}% · 整叠 {stack} 发",
+            })
         return out
 
     # ==================================================================
@@ -1472,12 +1522,14 @@ class RunEngine:
             tables = tpl.get("tables") or ["ammo"]
 
             if tpl.get("pry_required"):
-                if not (cfg.item(st["weapon"]["id"]).get("pry") if st["weapon"] else False):
-                    self._log("你得用能撬的东西才打得开。")
+                # P9：撬棍不必拿在手上——背包里有也算（磨损落在实际使用的那把）
+                pry_w = self._find_pry_weapon()
+                if not pry_w:
+                    self._log("你得用能撬的东西才打得开。（撬棍揣在包里也算数）")
                     return
                 noise.add(cfg, st, tpl.get("noise_on_pry", 2))
                 self._log("你用撬棍别开了它，响声不小。")
-                self._damage_weapon(1)
+                self._wear_pry_weapon(pry_w)
 
             # 拾荒直觉：额外一次判定的机会
             extra = float(talents.mod(st, "loot_extra_roll_chance", 0.0))
@@ -1669,7 +1721,11 @@ class RunEngine:
             self.cfg, self.rng, pp, ep, attacker_meta=meta
         )
         if not res["hit"]:
-            self._log(f"你扑了个空。{enemy['name']}擦着你的手滑了过去。")
+            # 文案按攻击方式区分：远程是子弹落空，近战才是擦手滑过
+            if ranged:
+                self._log(f"你开了枪，却没打中。{enemy['name']}在枪口前侧身避过。")
+            else:
+                self._log(f"你扑了个空。{enemy['name']}擦着你的手滑了过去。")
             return
         enemy["hp"] -= res["dmg"]
         verb = "开枪命中" if ranged else "砸中"
@@ -1882,17 +1938,21 @@ class RunEngine:
         else:
             noise.add(self.cfg, st, "melee_kill")
 
-        # 死亡特效：肿尸爆炸
+        # 死亡特效：肿尸/燃烧兵爆炸——远程击杀站在射程外，气浪与飞溅
+        # 波及不到（噪音照算：爆炸声是会引东西的）；近战补刀则吃满伤害与感染
         od = enemy.get("on_death") or {}
         if "explode" in od:
             ex = od["explode"]
-            dmg = self.rng.rand_range_int(ex["damage"] if "damage" in ex else ex["dmg"])
-            st["hp"] -= dmg
-            inf_old, inf_new = self._add_infection(
-                self.rng.rand_value(ex["infection"])
-            )
             noise.add(self.cfg, st, ex.get("noise", 3))
-            self._log(f"它的身体炸开了！腐臭的液体溅了你一身。（HP −{dmg}，感染 +{inf_new - inf_old}）")
+            if ranged:
+                self._log("它在射程外炸开了，气浪扑来时你早已退开。")
+            else:
+                dmg = self.rng.rand_range_int(ex["damage"] if "damage" in ex else ex["dmg"])
+                st["hp"] -= dmg
+                inf_old, inf_new = self._add_infection(
+                    self.rng.rand_value(ex["infection"])
+                )
+                self._log(f"它的身体炸开了！腐臭的液体溅了你一身。（HP −{dmg}，感染 +{inf_new - inf_old}）")
 
         if enemy.get("boss"):
             st["boss_alive"] = False
@@ -1923,13 +1983,18 @@ class RunEngine:
             if st.get("horde") and any(
                 e.get("horde") for e in st["combat"]["enemies"]
             ):
-                noise.cut_after_wave_clear(self.cfg, st)
-                cut = float(
-                    self.cfg.balance["noise"]["horde"].get("clear_noise_cut", 0)
+                # 破潮者天赋：打退尸潮后额外削减（在基础削减上叠加）
+                extra = float(talents.mod(st, "wave_clear_cut_bonus", 0))
+                noise.cut_after_wave_clear(self.cfg, st, extra_cut=extra)
+                cut = min(
+                    0.9,
+                    float(self.cfg.balance["noise"]["horde"].get("clear_noise_cut", 0))
+                    + extra,
                 )
+                bonus_txt = f"（含破潮者额外削减）" if extra > 0 else ""
                 self._log("追兵被你打退了，潮水正在退去。")
                 if cut > 0:
-                    self._log(f"四周安静下来。（噪音 −{round(cut * 100)}%）")
+                    self._log(f"四周安静下来。（噪音 −{round(cut * 100)}%{bonus_txt}）")
             self._check_horde()
             # P7：战斗结束 → 结算待处理的升级（弹三选一）
             self._settle_levelups()
@@ -1959,7 +2024,7 @@ class RunEngine:
                 st["hp"] -= taken
                 noise.add(self.cfg, st, ab.get("noise", 0))
                 if absorbed:
-                    self._log(f"{enemy['name']}使出【{ab['name']}】！你受到 {taken} 点伤害（护甲吸收 {absorbed}）。")
+                    self._log(f"{enemy['name']}使出【{ab['name']}】！你受到 {taken} 点伤害（护甲吸收 {absorbed} · {self._armor_dur_text()}）。")
                 else:
                     self._log(f"{enemy['name']}使出【{ab['name']}】！你受到 {dmg} 点伤害。")
                 used_ability = True
@@ -1998,8 +2063,9 @@ class RunEngine:
                 if "bite" in res["effects"] and res["infection"]:
                     bite_infection_total += int(res["infection"])
 
+            dur_txt = self._armor_dur_text()
             if burst:
-                abs_txt = f"（护甲吸收 {total_absorbed}）" if total_absorbed else ""
+                abs_txt = f"（护甲吸收 {total_absorbed} · {dur_txt}）" if total_absorbed else ""
                 self._log(
                     f"{enemy['name']}扣动扳机扫射，{hit_shots}/{shots} 发命中——"
                     f"你受到 {total_taken} 点伤害{abs_txt}。"
@@ -2007,7 +2073,7 @@ class RunEngine:
             elif hit_shots == 0:
                 self._log(f"{enemy['name']}扑空了。")
             else:
-                abs_txt = f"（护甲吸收 {total_absorbed}）" if total_absorbed else ""
+                abs_txt = f"（护甲吸收 {total_absorbed} · {dur_txt}）" if total_absorbed else ""
                 self._log(f"{enemy['name']}击中你，造成 {total_taken} 点伤害{abs_txt}。")
 
             if bite_infection_total:
@@ -2435,10 +2501,8 @@ class RunEngine:
             self._log("你犹豫了。")
             return
 
-        if choice.get("require_pry") and not (
-            self.cfg.item(st["weapon"]["id"]).get("pry") if st["weapon"] else False
-        ):
-            self._log("你需要能撬开它的东西。")
+        if choice.get("require_pry") and not self._find_pry_weapon():
+            self._log("你需要能撬开它的东西。（撬棍揣在包里也算数）")
             return
 
         room["resolved"] = True
@@ -2870,11 +2934,14 @@ class RunEngine:
                     f"现金不够——{cfg.item(iid)['name']} 要 {cost}，你只有 {loot.count(st, 'cash')}。"
                 )
                 return
+            # 弹药槽：整叠购买（qty 发）
+            buy_qty = int(entry.get("qty", 1) or 1)
             # 先拿后丢：直接成交入包（超容量由 bag_overflow 决策兜底）
-            self._acquire(iid, 1)
+            self._acquire(iid, buy_qty)
             loot.remove(st, "cash", cost)
             entry["sold"] = True  # 一件商品只卖一次，堵死"反复买同一件"的路
-            self._log(f"你花 {cost} 现金换来了 {cfg.item(iid)['name']}。")
+            qty_txt = f" ×{buy_qty}" if buy_qty > 1 else ""
+            self._log(f"你花 {cost} 现金换来了 {cfg.item(iid)['name']}{qty_txt}。")
             return
 
         if choice == "sell":

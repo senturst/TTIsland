@@ -208,7 +208,8 @@ merchant:
     backpack: 1    # 池：items.backpacks
     other: 3       # 池：ammo/consumable/material/trinket
   # 其他位候选池（避免全是废铁；含少量武器弹药与消耗品）
-  other_pool: [ammo_t1, ammo_t2, ammo_t3, bandage, medkit, canned,
+  # P9：弹药不再进商人随机池（专属弹药槽按地区售卖），NPC 沿用本池
+  other_pool: [bandage, medkit, canned,
                battery, scrap, duct_tape, alcohol, painkiller, disinfectant,
                wedding_ring, dog_tag, photo, crowbar]
   # 卖出价 = 物品 value × sell_ratio（向下取整，至少 1）
@@ -220,6 +221,14 @@ merchant:
 
   # ---- 作者怜悯：极低概率触发，仅普通商人；玩家免费任选一件 ----
   authors_mercy_chance: 0.01      # 默认 1%
+
+  # ---- P9 弹药槽：每个商人固定出售一叠当前地区最低档弹药（一次性购买）----
+  # ammo_by_region —— 地区 → 弹种 id（地区 1 = T1 劣质，地区 2 = T4 军用）
+  # ammo_stack     —— 一叠的发数；售价 = 弹种 value × 叠数
+  ammo_by_region:
+    1: ammo_t1
+    2: ammo_t4
+  ammo_stack: 8
 
   # ---- 感染商人：进入后可「上交 toll_hp 生命」换取**下一次购买**半价
   #      （一次性，用掉可再交）。商店按原价铺货，没有门槛、没有抽血 ----

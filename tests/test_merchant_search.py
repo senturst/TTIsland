@@ -717,6 +717,56 @@ def test_fists_unobtainable():
     asyncio.run(run())
 
 
+def test_merchant_ammo_slot_by_region():
+    """P9 弹药槽：商人固定卖一叠当前地区最低档弹药（地区1=T1×8，地区2=T4×8）。
+
+    一叠一次性购买（sold 标记），整叠价 = value × 叠数。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        loot.grant(cfg, st, "cash", 100)
+        _enter_merchant_room(eng)  # 地区 1（depth 1）
+
+        shop = st["room"]["merchant"]["shop"]
+        # 专属弹药槽 = qty 为一叠（8 发）的条目；other_pool 随机弹（单发）不算
+        ammo_entry = next(
+            (s2 for s2 in shop if s2.get("kind") == "ammo" and s2.get("qty") == 8), None
+        )
+        assert ammo_entry and ammo_entry["id"] == "ammo_t1", f"地区 1 商人应卖 T1 弹药: {shop}"
+        assert ammo_entry["qty"] == 8 and ammo_entry["cost"] == 24,             f"一叠应为 8 发 / 24 现金，实际 {ammo_entry}"
+
+        before = loot.count(st, "ammo_t1")
+        cash_before = loot.count(st, "cash")
+        await eng._act_merchant({"choice": "buy", "item": "ammo_t1"})
+        assert loot.count(st, "ammo_t1") == before + 8, "应买到一叠 8 发"
+        assert loot.count(st, "cash") == cash_before - 24, "应扣整叠价 24"
+        assert ammo_entry["sold"] is True, "售罄标记（一叠一次性）"
+        # 二次购买同款 → 已易主
+        await eng._act_merchant({"choice": "buy", "item": "ammo_t1"})
+        assert loot.count(st, "ammo_t1") == before + 8, "已售出不可回购"
+
+    asyncio.run(run())
+
+    async def run2():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["depth"] = 6
+        loot.grant(cfg, st, "cash", 100)
+        _enter_merchant_room(eng)  # 地区 2
+
+        shop = st["room"]["merchant"]["shop"]
+        ammo_entry = next(
+            (s2 for s2 in shop if s2.get("kind") == "ammo" and s2.get("qty") == 8), None
+        )
+        assert ammo_entry and ammo_entry["id"] == "ammo_t4",             f"地区 2 商人应卖 T4 军用弹药: {shop}"
+        assert ammo_entry["qty"] == 8 and ammo_entry["cost"] == 64,             f"一叠应为 8 发 / 64 现金，实际 {ammo_entry}"
+
+    asyncio.run(run2())
+
+
 def test_armor_repair_reduces_max_durability():
     """修甲每修一次耐久上限 −1；修满那一刀的溢出被钳掉；修武器不影响上限。"""
     cfg = get_config()
@@ -806,4 +856,6 @@ if __name__ == "__main__":
     test_field_repair_outside_merchant()
     test_armor_repair_reduces_max_durability()
     print("✓ 非商人区域废料逐点修理")
+    test_merchant_ammo_slot_by_region()
+    print("✓ 弹药槽：地区最低档一叠（T1/T4）一次性购买")
     print("\n商人/搜索/墓碑远程 回归测试全部通过")

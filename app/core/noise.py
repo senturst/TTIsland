@@ -93,14 +93,15 @@ def check_horde(cfg: GameConfig, state: dict) -> bool:
     return False
 
 
-def cut_after_wave_clear(cfg: GameConfig, state: dict) -> float:
+def cut_after_wave_clear(cfg: GameConfig, state: dict, extra_cut: float = 0.0) -> float:
     """消灭一波尸潮后的噪音削减（clear_noise_cut）。返回实际削减后的值。
 
     同时平息尸潮——把追兵打退，潮水就算退了。
+    extra_cut：破潮者天赋的追加削减（在基础削减上叠加，总削减封顶 90%）。
     """
     ncfg = cfg.balance["noise"]["horde"]
     state["horde"] = False
-    cut = float(ncfg.get("clear_noise_cut", 0))
+    cut = min(0.9, float(ncfg.get("clear_noise_cut", 0)) + max(0.0, float(extra_cut)))
     if cut > 0:
         state["noise"] = max(0.0, value(state) * (1.0 - cut))
     return value(state)

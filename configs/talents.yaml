@@ -189,11 +189,11 @@ talents:
     mods: {start_items: [[medkit, 1]]}
 
   # ---------------- 机动 ----------------
-  - id: nightwalker
-    name: 夜行者
-    desc: 尸潮触发阈值 +2，噪音衰减加快 60%
+  - id: wavebreaker
+    name: 破潮者
+    desc: 打退一波尸潮后，额外削减 20% 噪音（在基础削减上叠加）
     weight: 8
-    mods: {noise_decay_mult: 1.6, horde_threshold_delta: 2}
+    mods: {wave_clear_cut_bonus: 0.20}
 
   - id: light_step
     name: 轻步
