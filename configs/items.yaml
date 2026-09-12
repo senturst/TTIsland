@@ -141,6 +141,7 @@ weapons:
     weight: 3
     tier: 3
     value: 32
+    min_region: 2
     desc_ai: true
 
   - id: smg
@@ -282,6 +283,15 @@ ammo:
     value: 5
 
 consumables:
+  # 防弹插板（地区 2 专属）：_act_use 消费——只对 plate_compatible 护甲生效
+  - id: ballistic_plate
+    name: 防弹插板
+    icon: "🛡️"
+    armor_plate: 20
+    weight: 12
+    min_region: 2
+    value: 15
+    desc_ai: false
   - id: bandage
     name: 绷带
     icon: "🩹"
@@ -404,6 +414,7 @@ armor:
     weight: 5
     tier: 2
     value: 22
+    plate_compatible: true
   - id: tactical_vest
     name: 战术背心
     icon: "🦺"
@@ -415,6 +426,7 @@ armor:
     weight: 6
     tier: 2
     value: 18
+    plate_compatible: true
     desc_ai: false
   - id: bike_helmet
     name: 自行车头盔
@@ -439,6 +451,8 @@ armor:
     weight: 4
     tier: 3
     value: 30
+    plate_compatible: true
+    min_region: 2
     desc_ai: false
 
 trinkets:
@@ -499,6 +513,7 @@ backpacks:
     weight: 3
     tier: 3
     value: 26
+    min_region: 2
     desc_ai: false
 
 # 消耗品不可作为遗物继承；现金是局内货币，同样不继承。

@@ -170,6 +170,8 @@ loot:
     material: [battery, scrap, duct_tape, alcohol]
     trinket: [wedding_ring, dog_tag, photo]
     gear: [small_pack, hiking_pack, large_pack]
+    # 地区 2 军械补给（房间表引用；物品带 min_region: 2 双重限区）
+    military_supplies: [ballistic_plate]
   # 近战武器耐久归零后伤害倍率
   broken_weapon_mult: 0.5
   # 搜索多件：拿到第一件后，按 p·decay^(k-1) 续 roll，直到失败或到顶 N

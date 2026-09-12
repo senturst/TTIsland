@@ -22,11 +22,20 @@ def roll_category(cfg: GameConfig, rng: RNG) -> str:
 
 
 def roll_from_category(
-    cfg: GameConfig, rng: RNG, category: str, quality_bonus: int = 0
+    cfg: GameConfig, rng: RNG, category: str, quality_bonus: int = 0,
+    depth: int = 1,
 ) -> str:
+    """按类别抽一件。depth 用于地区过滤：物品的 min_region 大于当前地区时
+    不参与抽取（P8：军械/防弹插板只在地区 2 出）。"""
     table = cfg.balance["loot"]["category_tables"].get(category)
     if not table:
         raise ValueError(f"未知掉落类别: {category}")
+    rid = cfg.region_id_for_level(depth)
+    filtered = [
+        i for i in table
+        if int(cfg.item(i).get("min_region", 1) or 1) <= rid
+    ]
+    table = filtered or table  # 过滤到空则回退全表，避免空抽崩溃
     if category == "ammo":
         # 弹药：先选弹种，数量在 balance 里配
         item_id = rng.choice(table)
@@ -151,7 +160,12 @@ def roll_loot(
     """按类别抽若干次，返回 [(item_id, qty)]。不直接入包，交给调用方展示。"""
     out: list[tuple[str, int]] = []
     for _ in range(max(1, rolls)):
-        item_id = roll_from_category(cfg, rng, category, quality_bonus)
+        item_id = roll_from_category(
+            cfg, rng, category, quality_bonus, depth=int(state.get("depth", 1))
+        )
+        # 防御兜底：回退表仍可能给出地区外物品（min_region > 当前地区）→ 跳过
+        if int(cfg.item(item_id).get("min_region", 1) or 1) > int(state.get("depth", 1)):
+            continue
         if cfg.item_kind(item_id) == "ammo":
             qty = ammo_qty(cfg, rng, item_id)
             # 弹药猎手：拾取数量乘数（P7 天赋池）

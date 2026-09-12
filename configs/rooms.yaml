@@ -87,6 +87,8 @@ templates:
 
     - id: gun_store
       name: 枪店
+      level_min: 1
+      level_max: 2
       tables: [ammo, weapons]
       rolls: [1, 2]
       pry_required: true
@@ -116,19 +118,25 @@ templates:
     # ---- 地区 2 · 军事检疫营地（P8）：军械富集 ----
     - id: armory_locker
       name: 军械柜
-      tables: [weapons, ammo]
+      level_min: 6
+      level_max: 10
+      tables: [weapons, ammo, military_supplies]
       rolls: [1, 2]
       pry_required: true
       noise_on_pry: 2
       vibe: 一排武器架，枪大多被拿走了，剩下的那几支看运气
     - id: supply_crate
       name: 军需补给箱
-      tables: [ammo, food, medical]
+      level_min: 6
+      level_max: 10
+      tables: [ammo, food, medical, military_supplies]
       rolls: [1, 2]
       vibe: 堆在墙角的军用补给箱，封条大多完好
     - id: field_armory
       name: 军械库房
-      tables: [weapons, gear]
+      level_min: 8
+      level_max: 10
+      tables: [weapons, gear, military_supplies]
       rolls: [1, 2]
       pry_required: true
       noise_on_pry: 3

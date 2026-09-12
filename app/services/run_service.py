@@ -1152,8 +1152,16 @@ class RunEngine:
         }
 
     def _roll_shop(self, mcfg: dict, discount: float) -> list[dict]:
-        """按 shop_slots 模板随机铺货：1 武器 / 1 装备（护甲或背包）/ 1 背包 / 3 其他。"""
+        """按 shop_slots 模板随机铺货：1 武器 / 1 装备（护甲或背包）/ 1 背包 / 3 其他。
+
+        P8：各池按当前地区过滤 min_region（军械/军用装备只在地区 2 上架）。
+        """
         cfg = self.cfg
+        rid = cfg.region_id_for_level(self.state["depth"])
+
+        def _region_ok(iid: str) -> bool:
+            return int(cfg.item(iid).get("min_region", 1) or 1) <= rid
+
         slots = mcfg.get("shop_slots", {}) or {}
         out: list[dict] = []
         for _ in range(int(slots.get("weapon", 0))):
@@ -1161,19 +1169,20 @@ class RunEngine:
             pool = [
                 w["id"] for w in cfg.items_cfg["weapons"]
                 if w["id"] != "crowbar" and int(w.get("weight", 0) or 0) > 0
+                and _region_ok(w["id"])
             ]
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
         for _ in range(int(slots.get("gear", 0))):
-            pool = [a["id"] for a in cfg.items_cfg["armor"]] + \
-                   [b["id"] for b in cfg.items_cfg["backpacks"]]
+            pool = [a["id"] for a in cfg.items_cfg["armor"] if _region_ok(a["id"])] + \
+                   [b["id"] for b in cfg.items_cfg["backpacks"] if _region_ok(b["id"])]
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
         for _ in range(int(slots.get("backpack", 0))):
-            pool = [b["id"] for b in cfg.items_cfg["backpacks"]]
+            pool = [b["id"] for b in cfg.items_cfg["backpacks"] if _region_ok(b["id"])]
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
-        pool = mcfg.get("other_pool") or []
+        pool = [i for i in (mcfg.get("other_pool") or []) if _region_ok(i)]
         for _ in range(int(slots.get("other", 0))):
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
@@ -1522,10 +1531,12 @@ class RunEngine:
             found.append(loot.describe(cfg, iid, qty))
 
     def _roll_weapon(self, found: list[str]) -> None:
-        """枪店类房间的武器掉落。拳头（weight 0）不可掉落。"""
+        """枪店类房间的武器掉落。拳头（weight 0）与地区外军械（min_region）不可掉。"""
+        rid = self.cfg.region_id_for_level(self.state["depth"])
         pool = [
             w for w in self.cfg.items_cfg["weapons"]
             if w["id"] != "crowbar" and int(w.get("weight", 0) or 0) > 0
+            and int(w.get("min_region", 1) or 1) <= rid
         ]
         if not pool:
             return
@@ -2122,6 +2133,7 @@ class RunEngine:
 
     async def _act_use(self, payload: dict) -> None:
         st = self.state
+        cfg = self.cfg
         iid = payload.get("item")
         if not iid or loot.count(st, iid) <= 0:
             self._log("你没有那个东西。")
@@ -2133,6 +2145,30 @@ class RunEngine:
 
         loot.remove(st, iid, 1)
         parts: list[str] = [f"你用了{item['name']}。"]
+
+        # 防弹插板（P8 地区 2 专属）：插进防弹衣类护甲 +20 耐久、无上限惩罚
+        if item.get("armor_plate"):
+            armor = st.get("armor") or {}
+            if not armor.get("id"):
+                loot.grant(cfg, st, iid, 1)
+                self._log("你身上没穿护甲——插板没地方安。")
+                return
+            acfg = cfg.item(armor["id"])
+            if not acfg.get("plate_compatible"):
+                loot.grant(cfg, st, iid, 1)
+                self._log(f"{acfg['name']}装不了防弹插板——只有防弹衣类的甲面吃这个。")
+                return
+            maxd = self._armor_max(armor)
+            before = int(armor.get("durability") or 0)
+            after = min(before + int(item["armor_plate"]), maxd)
+            armor["durability"] = after
+            self._log(
+                f"你把防弹插板压进{acfg['name']}的甲面。（耐久 {before}→{after}，"
+                "插板不伤甲——上限不变）"
+            )
+            if st.get("in_combat"):
+                await self._enemy_round()
+            return
 
         if item.get("heal"):
             amount = self.rng.rand_range_int(item["heal"])
