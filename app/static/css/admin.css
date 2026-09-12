@@ -120,3 +120,20 @@ tbody tr:hover { background: var(--panel-2); }
 @media (max-width: 720px) {
   .config-layout { grid-template-columns: 1fr; }
 }
+
+/* ---- P9 玩家编辑器：数值网格 + 背包下拉行 ---- */
+.val-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .5rem 1rem;
+  margin-bottom: 1rem;
+}
+.val-grid label { display: flex; flex-direction: column; font-size: .8rem; color: #9ab; gap: .2rem; }
+.val-grid input { width: 100%; }
+.inv-rows { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1rem; }
+.inv-row { display: grid; grid-template-columns: 2rem 2fr 5rem 6rem 3rem; gap: .4rem; align-items: center; }
+.inv-row .slot-no { color: #567; font-size: .8rem; }
+.inv-row select, .inv-row input { width: 100%; }
+.inv-row .slot-empty { color: #567; }
+details.adv { margin-top: 1rem; }
+details.adv textarea { width: 100%; min-height: 200px; }

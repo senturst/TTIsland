@@ -170,8 +170,8 @@ monsters:
     name: 军犬
     icon: "🐕"
     <<: *base
-    hp: 9
-    dmg: [2, 5]
+    hp: 12
+    dmg: [3, 5]
     acc: 60
     eva: 20
     speed: 11

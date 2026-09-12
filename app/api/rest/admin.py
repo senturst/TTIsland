@@ -14,7 +14,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from ...admin_auth import login, logout, valid_session
-from ...data.loader import CONFIG_DIR, reload_config, reload_status
+from ...data.loader import CONFIG_DIR, get_config, reload_config, reload_status
 from ...db import repo
 from ...deps import db_call
 
@@ -151,17 +151,47 @@ async def list_players(_: None = Depends(require_admin)) -> dict:
     return {"players": out}
 
 
+@router.get("/items")
+async def list_items(_: None = Depends(require_admin)) -> dict:
+    """全物品目录（玩家编辑器的背包下拉数据源），按段分组。"""
+    cfg = get_config()
+    groups = []
+    for sec in ("weapons", "armor", "backpacks", "consumables", "ammo", "materials", "trinkets"):
+        names = {
+            "weapons": "武器", "armor": "护甲", "backpacks": "背包",
+            "consumables": "消耗品", "ammo": "弹药", "materials": "材料", "trinkets": "纪念品",
+        }
+        items = [
+            {"id": it["id"], "name": it["name"],
+             "durability": int(it.get("durability", 0) or 0)}
+            for it in cfg.items_cfg.get(sec) or []
+        ]
+        if items:
+            groups.append({"section": sec, "label": names[sec], "items": items})
+    return {"groups": groups}
+
+
 @router.get("/players/{run_id}")
 async def get_player(run_id: str, _: None = Depends(require_admin)) -> dict:
     row = await db_call(repo.runs.get, run_id)
     if not row:
         raise HTTPException(status_code=404, detail="run 不存在")
     state = await db_call(repo.runs.load_state, row)
+    # 背包容量（空位展示用）：基础 + 背包 slots + 护甲 pockets（与 _bag_cap 同口径）
+    cfg = get_config()
+    cap = int(cfg.balance["player"].get("bag_slots", 8))
+    bp = state.get("backpack") or {}
+    if bp.get("id"):
+        cap += int(cfg.item(bp["id"]).get("slots", 0) or 0)
+    ar = state.get("armor") or {}
+    if ar.get("id"):
+        cap += int(cfg.item(ar["id"]).get("pockets", 0) or 0)
     return {
         "run_id": run_id,
         "status": row["status"],
         "player_id": row["player_id"],
         "state": state,
+        "bag_cap": max(1, cap),
     }
 
 

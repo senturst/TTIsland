@@ -66,11 +66,32 @@
           <div class="row">
             <strong id="player-name">—</strong>
             <button id="player-back" class="ghost">返回列表</button>
-            <button id="player-save" class="primary">保存状态</button>
+            <button id="player-save" class="primary">保存全部</button>
           </div>
-          <p class="muted">编辑下方完整状态 JSON（含背包 inventory / 武器 weapon / 护甲 armor / 货币 cash·scrap 等），保存后立即生效，玩家下次行动会加载这份状态。</p>
-          <textarea id="player-state" spellcheck="false"></textarea>
           <div id="player-status" class="status"></div>
+
+          <!-- 普通值：输入框 -->
+          <h3>数值</h3>
+          <div class="val-grid">
+            <label>生命 <input id="v-hp" type="number" /></label>
+            <label>生命上限 <input id="v-hp-max" type="number" /></label>
+            <label>感染% <input id="v-infection" type="number" /></label>
+            <label>体力 <input id="v-stamina" type="number" /></label>
+            <label>现金 <input id="v-cash" type="number" /></label>
+            <label>废料 <input id="v-scrap" type="number" /></label>
+            <label>胶带 <input id="v-tape" type="number" /></label>
+            <label>分数 <input id="v-score" type="number" /></label>
+          </div>
+
+          <!-- 背包：每行一格，下拉替换 -->
+          <h3>背包（<span id="inv-cap">0</span> 格）</h3>
+          <div id="inv-rows" class="inv-rows"></div>
+
+          <details class="adv">
+            <summary>高级：完整状态 JSON（武器/护甲/装备槽/clip 等深度编辑）</summary>
+            <textarea id="player-state" spellcheck="false"></textarea>
+            <div class="row"><button id="player-save-json" class="primary">保存 JSON</button></div>
+          </details>
         </div>
       </div>
     </section>
