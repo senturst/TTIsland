@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.core import loot  # noqa: E402
 from app.data.loader import get_config  # noqa: E402
-from app.services.run_service import RunEngine  # noqa: E402
+from app.services.run_service import RunEngine, RunEnded  # noqa: E402
 
 
 def choose(engine: RunEngine) -> tuple[str, dict]:
@@ -257,9 +257,14 @@ async def play_one(cfg, legacy=None, max_steps: int = 3000) -> dict:
         from app.core import loot as _loot
 
         w_id, a_id = "silenced_smg", "riot_gear"
+        wcfg = cfg.item(w_id)
         st["weapon"] = {
             "id": w_id,
-            "durability": int(cfg.item(w_id).get("durability", 0) or 0) or None,
+            "durability": int(wcfg.get("durability", 0) or 0) or None,
+            # P9 弹匣系统：--from 开局必须装填弹匣，否则玩家拿空仓枪＝徒手
+            # 打地区二（silenced_smg 的 clip_ammo/clip_count 不在此初始化即永远 0）
+            "clip_ammo": wcfg.get("ammo_type"),
+            "clip_count": int(wcfg.get("mag_size", 0) or 0),
         }
         st["armor"] = {
             "id": a_id,
@@ -275,7 +280,12 @@ async def play_one(cfg, legacy=None, max_steps: int = 3000) -> dict:
         engine.state["status"] == "active" or engine.state.get("pending_decision")
     ) and steps < max_steps:
         action, payload = choose(engine)
-        await engine.act(action, payload)
+        try:
+            await engine.act(action, payload)
+        except RunEnded:
+            # 终局异常：把这一局当作正常死亡收尾，别让单局偶发（如 pending 中
+            # 感染爆发）炸掉整批 300 局报告。
+            break
         steps += 1
 
     st = engine.state

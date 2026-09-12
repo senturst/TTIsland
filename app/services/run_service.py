@@ -3569,10 +3569,8 @@ class RunEngine:
             acts.append({"id": "attack", "label": "攻击" if melee_held else "挥拳", "kind": "danger"})
             if held.get("kind") == "ranged":
                 acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
-                # P9 弹匣未满 → 装填入口（前端弹装填面板，选择弹种后消耗 1 回合）
-                clip_count = int((st.get("weapon") or {}).get("clip_count") or 0)
-                if clip_count < self._mag_size(held):
-                    acts.append({"id": "reload", "label": "装填（耗 1 回合）", "kind": "safe"})
+                # P9 装填入口恒显示：满弹匣也要能换弹种（旧弹退包）
+                acts.append({"id": "reload", "label": "装填（耗 1 回合）", "kind": "safe"})
             acts.append({"id": "flee", "label": "逃跑", "kind": "ghost"})
             # 瞄准：消耗体力换临时命中加成。低体力只是用不了，绝不影响基础命中。
             cost = int(self.cfg.balance["combat"].get("brace_stamina_cost", 0))
@@ -3598,9 +3596,8 @@ class RunEngine:
                 acts.append({"id": "attack", "label": "攻击" if melee_held else "挥拳", "kind": "danger"})
                 if held.get("kind") == "ranged":
                     acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
-                    clip_count = int((st.get("weapon") or {}).get("clip_count") or 0)
-                    if clip_count < self._mag_size(held):
-                        acts.append({"id": "reload", "label": "装填（耗 1 回合）", "kind": "safe"})
+                    # P9 装填入口恒显示：满弹匣也要能换弹种（旧弹退包）
+                    acts.append({"id": "reload", "label": "装填（耗 1 回合）", "kind": "safe"})
             else:
                 acts.append({"id": "descend", "label": "下一层", "kind": "primary"})
 

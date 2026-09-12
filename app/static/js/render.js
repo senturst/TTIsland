@@ -409,13 +409,13 @@ export function renderPack(onAction) {
       node.appendChild(m);
     }
 
-    // P9 装填：手持远程武器且弹匣未满 → 装填入口（打开装填面板）
-    if (it.held && it.slot === "weapon" && (it.mag_size ?? 0) > 0
-        && (it.clip_count ?? 0) < it.mag_size && !locked) {
+    // P9 装填：手持远程武器恒显示入口——满弹匣也要能换弹种（旧弹退包）
+    if (it.held && it.slot === "weapon" && (it.mag_size ?? 0) > 0 && !locked) {
       const rl = document.createElement("button");
       rl.type = "button";
       rl.className = "btn btn-safe pack-fix";
-      rl.textContent = `装填 ${it.clip_count ?? 0}/${it.mag_size}`;
+      const full = (it.clip_count ?? 0) >= it.mag_size;
+      rl.textContent = full ? `换弹种 ${it.clip_count}/${it.mag_size}` : `装填 ${it.clip_count}/${it.mag_size}`;
       rl.disabled = state.busy;
       rl.title = "从背包选择弹药装填弹匣";
       rl.addEventListener("click", (e) => {
@@ -1238,7 +1238,8 @@ export function setBusy(busy) {
   // 漏恢复会让丢弃按钮永远点不了（玩家看起来就是"按钮被挡住了"）。
   const buttons = document.querySelectorAll(
     "#cmd-buttons .btn, #merchant .mch-btn, #npc .mch-btn, .pack-item .pack-drop, .pack-item .pack-fix, " +
-    ".side-cell .pack-drop, .side-cell .pack-fix, #evac-carry .mch-btn, .carry-confirm, #reload-panel .mch-btn"
+    ".side-cell .pack-drop, .side-cell .pack-fix, #evac-carry .mch-btn, .carry-confirm, " +
+    "#reload-panel .mch-btn, #reload-close, .merchant-leave"
   );
   buttons.forEach((b) => { b.disabled = busy; });
 }
