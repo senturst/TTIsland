@@ -218,6 +218,9 @@ function setupSidePanel() {
     setOpen(!panel.classList.contains("open"))
   );
   close?.addEventListener("click", () => setOpen(false));
+  document
+    .getElementById("side-close-bottom")
+    ?.addEventListener("click", () => setOpen(false));
 }
 
 /* ------------------------------------------------------------------ */

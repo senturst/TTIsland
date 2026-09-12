@@ -328,9 +328,11 @@ body::after {
   z-index: 40;
   writing-mode: vertical-rl;
   font-family: var(--mono);
-  font-size: .8rem;
+  font-size: 1.3rem;
+  line-height: 1;
   letter-spacing: .12em;
-  padding: .6rem .18rem;
+  padding: .9rem .3rem;
+  min-height: 4.5rem;
   background: var(--panel-2);
   color: var(--text-dim);
   border: 1px solid var(--line);
@@ -375,6 +377,25 @@ body::after {
   padding: .05rem .45rem; cursor: pointer;
 }
 .side-close:hover { color: var(--text); }
+
+/* 面板底部全宽关闭按钮：右上角 ✕ 太小难点中，触屏友好 */
+.side-close-wide {
+  display: block;
+  width: 100%;
+  margin-top: .9rem;
+  padding: .6rem 0;
+  min-height: 44px;
+  font-family: var(--mono);
+  font-size: .85rem;
+  letter-spacing: .2em;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.side-close-wide:hover { color: var(--phosphor); border-color: var(--phosphor); }
 
 /* 装备槽：一格一件，格子固定尺寸便于对齐与扩展 */
 .side-equip-grid,
@@ -765,4 +786,11 @@ kbd.hot { margin-left: .35rem; }
   /* 手机没有物理键盘：快捷键提示条和按钮上的键盘徽标既占空间又误导，隐藏 */
   .cmd-hint { display: none; }
   kbd.hot { display: none; }
+
+  /* 右侧背包把手：手指点中比桌面更难，再放大一档 */
+  .side-toggle {
+    font-size: 1.5rem;
+    padding: 1.1rem .35rem;
+    min-height: 5.5rem;
+  }
 }
