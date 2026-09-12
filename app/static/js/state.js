@@ -98,6 +98,7 @@ export function applyServerState(data) {
       bagCap: st.bag_cap ?? s.bagCap,
       bagUsed: st.bag_used ?? s.bagUsed,
       ammo: st.ammo ?? s.ammo,
+      carry_extra: st.carry_extra ?? 0,
       ammoTypes: st.ammo_types ?? s.ammoTypes ?? [],
       cash: st.cash ?? s.cash,
       scrap: st.scrap ?? s.scrap,

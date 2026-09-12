@@ -410,6 +410,11 @@ class RunEngine:
                 "id": iid, "durability": dur,
                 "dmg_mult": round(dmg_mult, 4), "passes": passes,
             }
+            # P9 弹匣：继承的远程武器到手弹匣全满（用户拍板）
+            wcfg = cfg.item(iid)
+            if wcfg.get("kind") == "ranged" and wcfg.get("mag_size"):
+                st["weapon"]["clip_ammo"] = wcfg.get("ammo_type")
+                st["weapon"]["clip_count"] = int(wcfg.get("mag_size", 0) or 0)
         elif kind == "armor":
             st["armor"] = {
                 "id": iid, "durability": maxd,
@@ -1211,8 +1216,8 @@ class RunEngine:
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
         for _ in range(int(slots.get("gear", 0))):
-            pool = [a["id"] for a in cfg.items_cfg["armor"] if _region_ok(a["id"])] + \
-                   [b["id"] for b in cfg.items_cfg["backpacks"] if _region_ok(b["id"])]
+            # P9 调整：gear 槽只出护甲——背包有专属槽位，不重复占用
+            pool = [a["id"] for a in cfg.items_cfg["armor"] if _region_ok(a["id"])]
             if pool:
                 out.append(self._shop_entry(self.rng.choice(pool), discount))
         for _ in range(int(slots.get("backpack", 0))):
@@ -1418,7 +1423,15 @@ class RunEngine:
             e = _inv(oid)
             if e and cfg.item_kind(oid) not in ("weapon", "armor", "backpack"):
                 other_entry = dict(e)
-        st["inventory"] = [other_entry] if other_entry else []
+        new_inv = [other_entry] if other_entry else []
+        # 满载撤离：额外槽位（任意物品，跳过已选 id 防重复）
+        for eid in payload.get("extra") or []:
+            if eid in (wid, gid, payload.get("other")):
+                continue
+            e = _inv(eid)
+            if e:
+                new_inv.append(dict(e))
+        st["inventory"] = new_inv
 
         # ---- 弹药/废料（与死亡继承同一口径）----
         wcfg = cfg.item(st["weapon"]["id"]) if st.get("weapon") else None
@@ -1696,7 +1709,8 @@ class RunEngine:
         )
 
         # 霰弹枪等 aoe 武器：一次齐射对所有敌人单独结算（各自独立命中/闪避/暴击）
-        aoe = bool(ranged and wcfg.get("aoe"))
+        # 点射（single）不展开 aoe
+        aoe = bool(ranged and wcfg.get("aoe") and not payload.get("single"))
 
         if aoe:
             alive = [e for e in st["combat"]["enemies"] if e["hp"] > 0]
@@ -3117,6 +3131,8 @@ class RunEngine:
             # status 保持 active，走 evac_carry 待决策（选 3 件带装进下一地区）；
             # 继承码/地区进度/解锁广播由 API 层在 act 后按 region_clear_pending 发放。
             st["region_clear_pending"] = rid
+            # 满载撤离：额外槽位数（前端多渲染选择列）
+            st["carry_extra"] = int(talents.mod(st, "evac_carry_extra", 0))
             st["pending_decision"] = "evac_carry"
             self._log("* 你抓住起落架下的货梯把手，被拉上了运输直升机。 *")
             self._log(f"** 地区 {rid} 撤离成功。（+撤离分，继承码稍后发放） **")
@@ -3322,7 +3338,9 @@ class RunEngine:
         enemies = [
             {"name": e["name"], "hp": max(0, e["hp"]), "hp_max": e["hp_max"],
              # 战斗列表原始索引：前端点名攻击时回传 target 用
-             "idx": i}
+             "idx": i,
+             # P9 怪物设定悬停（desc 为静态背景描写）
+             "desc": self.cfg.monster(e["id"]).get("desc", "")}
             for i, e in enumerate(st.get("combat", {}).get("enemies", []))
             if e["hp"] > 0
         ]
@@ -3401,6 +3419,7 @@ class RunEngine:
                 "flashlight": st.get("flashlight"),
                 "depth": st["depth"],
                 "max_depth": self.cfg.max_level,
+                "carry_extra": int(st.get("carry_extra", 0)),
                 "turn": st["turn"],
                 "kills": st["kills"],
                 "score": st["score"],
@@ -3487,6 +3506,8 @@ class RunEngine:
                                 "cost": int(s["cost"]),
                                 "value": int(s["value"]),
                                 "sold": bool(s.get("sold")),
+                                # P9 弹药槽：整叠发数（购买一次给一叠）
+                                "qty": int(s.get("qty", 1) or 1),
                                 "desc": _item_desc(self.cfg.item(s["id"]), s["kind"]),
                             }
                             for s in m.get("shop", [])
@@ -3674,6 +3695,9 @@ class RunEngine:
             acts.append({"id": "attack", "label": "攻击" if melee_held else "挥拳", "kind": "danger"})
             if held.get("kind") == "ranged":
                 acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
+                # P9 点射：单发耗弹（burst 武器的省弹选择）
+                acts.append({"id": "shoot", "label": "点射（1 发）", "kind": "danger",
+                             "single": 1})
                 # P9 装填入口恒显示：满弹匣也要能换弹种（旧弹退包）
                 acts.append({"id": "reload", "label": "装填（耗 1 回合）", "kind": "safe"})
             acts.append({"id": "flee", "label": "逃跑", "kind": "ghost"})
@@ -3701,6 +3725,9 @@ class RunEngine:
                 acts.append({"id": "attack", "label": "攻击" if melee_held else "挥拳", "kind": "danger"})
                 if held.get("kind") == "ranged":
                     acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
+                    # P9 点射：单发耗弹（burst 武器的省弹选择）
+                    acts.append({"id": "shoot", "label": "点射（1 发）", "kind": "danger",
+                                 "single": 1})
                     # P9 装填入口恒显示：满弹匣也要能换弹种（旧弹退包）
                     acts.append({"id": "reload", "label": "装填（耗 1 回合）", "kind": "safe"})
             else:

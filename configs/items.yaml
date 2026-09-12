@@ -512,7 +512,7 @@ trinkets:
     desc_ai: true
   - id: dog_tag
     name: 身份牌
-    icon: "🪪"
+    icon: "💳"
     score: 12
     weight: 12
     value: 12

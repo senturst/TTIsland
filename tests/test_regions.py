@@ -111,13 +111,19 @@ def test_region1_evac_enters_carry_decision():
         st["depth"] = 5
         st["boss_alive"] = False  # Boss 已死
         st["evac_countdown"] = 10
+        st["inventory"].append({"id": "dog_tag", "qty": 1})  # 纪念品随撤离计分
 
         await eng._act_evac({})
+        import sys as _s
+        print("DBG score:", st.get("score"), "| depth:", st.get("depth"), "| pending:", st.get("pending_decision"), "| log:", st["log"][-2:])
 
         assert st["status"] == "active", "中间地区撤离不应结束对局"
         assert st["pending_decision"] == "evac_carry"
         assert st["region_clear_pending"] == 1, "应标记待发放的地区通关"
         assert st["evac_countdown"] is None, "撤离后倒计时应停止"
+        # 纪念品随撤离结算积分（没带走也计）
+        trinket = int(cfg.item("dog_tag").get("score", 0) or 0)
+        assert st["score"] >= 200 + trinket, f"撤离分应含基础分与纪念品分，实际 {st['score']}"
 
     asyncio.run(run())
 
@@ -147,6 +153,8 @@ def test_evac_carry_applies_selection_and_enters_region2():
         st["hp"] = 10
         st["noise"] = 8.0
         st["horde"] = True
+        # 纪念品随撤离结算积分（没带走也计）
+        st["inventory"].append({"id": "dog_tag", "qty": 1})
 
         await eng._apply_evac_carry({
             "weapon": "silenced_smg", "gear": "riot_gear", "other": "bandage",

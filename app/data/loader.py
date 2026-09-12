@@ -390,6 +390,8 @@ class GameConfig:
             "keep_ratio_mult",
             # P9 破潮者（noise.cut_after_wave_clear 额外削噪）
             "wave_clear_cut_bonus",
+            # P9 地区切换（撤离带装额外槽位）
+            "evac_carry_extra",
             # 资源与背包（run_service / _bag_cap）
             "hp_max", "stamina_max", "bag_slots", "kill_heal",
             "descend_heal_add", "flashlight_bonus",

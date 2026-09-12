@@ -260,7 +260,8 @@ export function renderEnemies() {
     const node = document.createElement("div");
     const targeted = e.idx === selectedTarget;
     node.className = "enemy" + (e.hp_max >= 60 ? " boss" : "") + (targeted ? " target" : "");
-    node.title = targeted ? "当前目标" : "点击设为优先攻击目标";
+    // 悬停显示怪物设定（desc 为静态背景描写）
+    node.title = e.desc ? `${e.name}：${e.desc}` : "点击设为优先攻击目标";
     const ic = document.createElement("span");
     ic.className = "icon hot";
     ic.textContent = iconFor(e.name) || "🧟";
@@ -1160,7 +1161,7 @@ export function renderReloadPanel(onAction) {
 /* 撤离带装面板（P8）：地区撤离后从现有物资里挑三样带进下一地区。
  * 候选由前端从 state 分组（服务端 /action 不过滤，确认时服务端校验归属）。
  * 选择状态存模块级变量——pending 期间的多次重渲染（busy 往返）不丢。 */
-let carrySel = { weapon: null, gear: null, other: null };
+let carrySel = { weapon: null, gear: null, other: null, extra: [] };
 let carryOpen = false;
 
 function carryChip(host, cand, slot, onAction) {
@@ -1206,7 +1207,7 @@ export function renderEvacCarry(onAction) {
   if (!inCarry) return;
   if (!carryOpen) {
     carryOpen = true;
-    carrySel = { weapon: null, gear: null, other: null };
+    carrySel = { weapon: null, gear: null, other: null, extra: [] };
   }
 
   const inv = state.inventory || [];
@@ -1241,6 +1242,40 @@ export function renderEvacCarry(onAction) {
   carryGroup("carry-weapons", weapons, "weapon", onAction, "空手跳下去（会捡到一把制式撬棍）");
   carryGroup("carry-gear", gear, "gear", onAction, "不带装备");
   carryGroup("carry-other", others, "other", onAction, "什么都不带");
+
+  // 满载撤离：额外槽位（任意物品多选，上限 carryExtra）
+  const extraN = state.carry_extra ?? 0;
+  const extraBox = document.getElementById("carry-extra");
+  if (extraBox) {
+    extraBox.textContent = "";
+    if (extraN > 0) {
+      const taken = new Set([carrySel.weapon, carrySel.gear, carrySel.other].filter(Boolean));
+      const cands = inv.filter(
+        (i) => i.kind !== "weapon" && i.kind !== "armor" && i.kind !== "backpack"
+      );
+      for (const c of cands) {
+        if (taken.has(c.id)) continue;
+        const row = document.createElement("div");
+        row.className = "mch-card";
+        const nm = document.createElement("span");
+        nm.className = "mch-name";
+        nm.textContent = `${iconFor(c.id) || "📦"} ${c.name}${c.qty > 1 ? ` ×${c.qty}` : ""}`;
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn-ghost mch-btn";
+        b.textContent = carrySel.extra.includes(c.id) ? "✓ 已选" : "带上";
+        b.disabled = state.busy;
+        b.addEventListener("click", () => {
+          const i2 = carrySel.extra.indexOf(c.id);
+          if (i2 >= 0) carrySel.extra.splice(i2, 1);
+          else if (carrySel.extra.length < extraN) carrySel.extra.push(c.id);
+          renderEvacCarry(onAction);
+        });
+        row.append(nm, b);
+        extraBox.appendChild(row);
+      }
+    }
+  }
 
   const confirm = document.getElementById("carry-confirm");
   if (confirm) {

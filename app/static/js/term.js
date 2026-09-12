@@ -27,7 +27,8 @@ function classify(text) {
   if (text.includes("造成伤害") || text.includes("命中")) return "combat";
   if (/击中你|受到 \d+ 点伤害|感染 \+|HP −/.test(text)) return "hurt";
   if (/尸潮|引来了它们|噪音到了临界点/.test(text)) return "bad";
-  if (/^HP \+|撤离者的补给|你找到了|获得 /.test(text)) return "good";
+  if (/掉出了|你找到了|你搜出了/.test(text)) return "loot";
+  if (/^HP \+|撤离者的补给|获得 /.test(text)) return "good";
   if (text.startsWith("> ") || text.startsWith("【")) return "sys";
   return "";
 }

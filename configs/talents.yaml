@@ -226,6 +226,13 @@ talents:
     weight: 6
     mods: {stamina_max: 6}
 
+  # ---------------- 撤离（P9 地区切换）----------------
+  - id: heavy_hauler
+    name: 满载撤离
+    desc: 战胜 Boss 撤离地区时，可多带走 2 件物品（武器/装备/物资均可）
+    weight: 6
+    mods: {evac_carry_extra: 2}
+
   # ---------------- 弹匣（P9 弹匣系统）----------------
   - id: extended_mag
     name: 扩容弹匣

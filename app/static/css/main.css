@@ -205,6 +205,8 @@ body::after {
   color: var(--phosphor); letter-spacing: .12em;
   border-top: 1px solid var(--line); margin-top: 1rem; padding-top: .7rem;
 }
+.line.loot { color: var(--amber); text-shadow: 0 0 6px rgba(201, 162, 39, .35); }
+
 .line.divider { color: var(--text-faint); letter-spacing: .3em; margin: .5rem 0; }
 
 /* 打字机光标 */
