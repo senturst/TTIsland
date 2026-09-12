@@ -19,6 +19,7 @@ os.environ.setdefault("LLM_ENABLED", "false")   # 测试不该消耗 API 额度
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from app.core import combat, loot  # noqa: E402
 from app.data.loader import get_config  # noqa: E402
 from app.services.run_service import RunEngine, RunEnded  # noqa: E402
 
@@ -129,6 +130,101 @@ def test_talent_choice_not_blocked_by_status_guard():
     asyncio.run(run())
 
 
+def test_ranged_legacy_full_durability_and_matched_ammo():
+    """死亡继承远程武器：满耐久占主手（无撬棍）、按武器弹药类型发放子弹。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await RunEngine.new_run(cfg, legacy={
+            "id": "silenced_smg", "earned_by": "death",
+            "passes": 0, "durability": 3,
+        })
+        st = eng.state
+        assert st["weapon"]["id"] == "silenced_smg"
+        # 远程武器无耐久概念（config 无 durability 字段）→ 原值透传
+        assert st["weapon"]["durability"] == 3
+        assert not any(e["id"] == "crowbar" for e in st["inventory"]), "不应再发撬棍"
+        start = int(cfg.balance["player"]["ammo_start"])
+        assert loot.count(st, "ammo_t3") == start, "继承枪械应发对口子弹（重弹药）"
+        assert loot.count(st, "ammo_t2") == 0, "默认制式弹药已取消"
+
+    asyncio.run(run())
+
+
+def test_melee_legacy_no_ammo_granted():
+    """继承近战武器：满耐久占主手（撬棍被替换），不发任何弹药。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await RunEngine.new_run(cfg, legacy={
+            "id": "fire_axe", "earned_by": "death",
+            "passes": 0, "durability": 2,
+        })
+        st = eng.state
+        assert st["weapon"]["id"] == "fire_axe"
+        assert st["weapon"]["durability"] == int(cfg.item("fire_axe").get("durability"))
+        for a in ("ammo_t1", "ammo_t2", "ammo_t3"):
+            assert loot.count(st, a) == 0, f"无远程继承不发 {a}"
+
+    asyncio.run(run())
+
+
+def test_plain_run_no_ammo():
+    """无继承开局：撬棍在手、零弹药（默认制式弹药不再发放）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await RunEngine.new_run(cfg)
+        st = eng.state
+        assert st["weapon"]["id"] == "crowbar"
+        for a in ("ammo_t1", "ammo_t2", "ammo_t3"):
+            assert loot.count(st, a) == 0
+
+    asyncio.run(run())
+
+
+def test_punch_fallback_while_holding_ranged():
+    """持枪按攻击 = 挥拳（拳头兜底）：造成伤害、不磨损枪、不再拒绝。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await RunEngine.new_run(cfg, legacy={
+            "id": "silenced_smg", "earned_by": "death",
+            "passes": 0, "durability": None,
+        })
+        st = eng.state
+        st["in_combat"] = True
+        st["combat"] = {"enemies": [combat.make_enemy(cfg, "walker", 1)], "round": 0}
+        st["combat"]["enemies"][0]["hp"] = 50
+        gun_dur = st["weapon"]["durability"]
+        eng._acquire = lambda *a, **k: None  # 屏蔽掉落
+
+        await eng._act_attack({})
+
+        assert st["combat"]["enemies"][0]["hp"] < 50, "挥拳应造成伤害（拳头 1-2）"
+        assert st["weapon"]["durability"] == gun_dur, "挥拳不磨损枪"
+        assert not any("不适合近身挥" in l for l in st["log"]), "不应再拒绝近战"
+
+    asyncio.run(run())
+
+
+def test_armor_legacy_full_with_instance_max():
+    """继承护甲：满耐久 + 实例上限字段（修甲磨上限的基础）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await RunEngine.new_run(cfg, legacy={
+            "id": "bike_helmet", "earned_by": "death",
+            "passes": 0, "durability": 4,
+        })
+        a = eng.state["armor"]
+        assert a["id"] == "bike_helmet"
+        assert a["durability"] == 25, "继承护甲应满耐久"
+        assert a["max_durability"] == 25, "实例上限应初始化为配置值"
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     test_death_offers_legacy_choices()
     print("✓ 死亡后给出遗物选项")
@@ -138,4 +234,14 @@ if __name__ == "__main__":
     print("✓ 撤离后同样给出选项")
     test_talent_choice_not_blocked_by_status_guard()
     print("✓ 天赋三选一未受影响")
+    test_ranged_legacy_full_durability_and_matched_ammo()
+    print("✓ 远程继承：满耐久+对口弹药+无撬棍")
+    test_melee_legacy_no_ammo_granted()
+    print("✓ 近战继承：满耐久+零弹药")
+    test_plain_run_no_ammo()
+    print("✓ 裸开局：撬棍+零弹药")
+    test_punch_fallback_while_holding_ranged()
+    print("✓ 持枪挥拳兜底")
+    test_armor_legacy_full_with_instance_max()
+    print("✓ 护甲继承：满耐久+实例上限")
     print("\n死亡流程回归测试全部通过")

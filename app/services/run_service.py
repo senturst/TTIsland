@@ -251,8 +251,6 @@ class RunEngine:
         # 开局物资
         for iid, qty in b.get("start_items") or []:
             loot.grant(cfg, state, iid, qty)
-        # 弹药：给制式弹药（t2 通用弹，够早期捡到的 t2 枪用）
-        loot.grant(cfg, state, "ammo_t2", b["ammo_start"])
 
         eng = cls(cfg, state, world=world)
         if legacy:
@@ -261,6 +259,11 @@ class RunEngine:
             # 通关已经给了满耐久遗物 + 撤离津贴；再叠天赋会让"故意去死"重新变成最优解。
             if legacy.get("earned_by") == "escaped":
                 eng.state["talent_eligible"] = False
+        # 弹药：不再默认发放（用户拍板）。仅当继承到远程武器时按其弹药类型
+        # 发 ammo_start——不对口的弹药等于废铁，没有远程就白手起家。
+        _w = cfg.item(state["weapon"]["id"]) if state.get("weapon") else None
+        if _w and _w.get("kind") == "ranged":
+            loot.grant(cfg, state, _w["ammo_type"], b["ammo_start"])
         # 有待选天赋时先不下地牢——否则玩家会在选完天赋前就撞上第一场遭遇，
         # 而"最大生命 +8"这类天赋必须在这之前生效才算数。
         if not eng._draw_talents():
@@ -324,11 +327,13 @@ class RunEngine:
 
     # ------------------------------------------------------------------
     def _apply_legacy(self, legacy: dict) -> None:
-        """继承遗物，并按传承代次衰减。
+        """继承遗物。
 
-        每传一代：伤害 ×0.85、耐久 ×0.6、护甲 −1。
-        传满 max_passes 代直接报废——任何装备都有寿命，
-        这条是"越玩越强"正反馈的终止条件。
+        继承不再抵扣耐久（用户拍板）：无论死亡还是撤离都**满耐久**继承，
+        继承近战武器则不再发撬棍（武器槽被直接替换）、继承枪械发对口子弹
+        （见 new_run）。传承代价轴 = 武器伤害衰减（×0.85/代）/
+        护甲命中惩罚（−1/代）/ 传满 max_passes 代直接报废——
+        最后这条是"越玩越强"正反馈的终止条件。
         """
         cfg, st = self.cfg, self.state
         rules = cfg.legacy_rules()
@@ -336,8 +341,7 @@ class RunEngine:
         iid = legacy["id"]
         item = cfg.item(iid)
 
-        # 撤离带回来的装备保养过，不算一次传承磨损；
-        # 死亡继承的是从尸体上扒下来的，多磨损一代。
+        # 撤离带回来的装备不算一次传承磨损；死亡继承多算一代。
         earned_by = legacy.get("earned_by", "death")
         survived = earned_by == "escaped"
         passes = int(legacy.get("passes", 0)) + (0 if survived else 1)
@@ -350,15 +354,11 @@ class RunEngine:
 
         kind = cfg.item_kind(iid)
         dmg_mult = float(rules.get("weapon_dmg_mult", 0.85)) ** passes
-        dur_mult = float(rules.get("durability_mult", 0.6)) ** passes
         armor_delta = -int(rules.get("armor_penalty", 1)) * passes
 
-        dur = legacy.get("durability")
-        if dur is not None:
-            if survived and rules.get("escape", {}).get("restore_durability", True):
-                dur = int(item.get("durability", dur)) or dur  # 撤离：带回满耐久
-            else:
-                dur = max(1, int(round(float(dur) * dur_mult)))
+        # 满耐久继承（耐久不再随代次扣减）
+        maxd = int(item.get("durability", 0) or 0)
+        dur = maxd or legacy.get("durability")
 
         if kind == "weapon":
             st["weapon"] = {
@@ -366,10 +366,12 @@ class RunEngine:
                 "dmg_mult": round(dmg_mult, 4), "passes": passes,
             }
         elif kind == "armor":
-            adur = int(self.cfg.item(iid).get("durability", 0) or 0)
-            if adur:
-                adur = max(1, int(round(adur * dur_mult)))
-            st["armor"] = {"id": iid, "durability": adur, "passes": passes}
+            st["armor"] = {
+                "id": iid, "durability": maxd,
+                # 实例上限：修甲会磨上限（每修一次 −1），撤离继承带满上限
+                "max_durability": maxd or None,
+                "passes": passes,
+            }
         else:
             loot.grant(cfg, st, iid, 1, dur)
             st["legacy_trinket"] = {"name": item["name"]}
@@ -401,14 +403,13 @@ class RunEngine:
             wear = "、".join(
                 p for p in (
                     f"伤害 ×{dmg_mult:.2f}" if kind == "weapon" else None,
-                    f"耐久 {dur}" if dur is not None else None,
-                    f"护甲 {armor_delta:+d}" if kind == "armor" else None,
+                    f"防御 {armor_delta:+d}" if kind == "armor" else None,
                 ) if p
             )
             self._log(
                 f"你带上了{item['name']}（第 {passes} 次传承"
                 + (f"，{wear}" if wear else "")
-                + "）。它比记忆里更旧了。"
+                + "）。它比记忆中钝了一些。"
             )
         else:
             self._log(f"你带上了上一位留下的{item['name']}。")
@@ -1398,12 +1399,11 @@ class RunEngine:
             return
 
         wcfg = combat.equipped_weapon(self.cfg, st)
-        if not wcfg:
-            self._log("你手上是空的。")
-            return
-
         shots = 1
         if ranged:
+            if not wcfg:
+                self._log("你手上是空的。")
+                return
             if wcfg.get("kind") != "ranged":
                 self._log("这不是枪。")
                 return
@@ -1428,13 +1428,17 @@ class RunEngine:
             # 噪音按一次攻击算一次——扫射再密，动静也只是一轮枪声
             noise.add(self.cfg, st, wcfg.get("noise_key", "gunshot"))
         else:
-            if wcfg.get("kind") != "melee":
-                self._log("这东西不适合近身挥。")
-                return
-            self._damage_weapon(1)
+            # 拳头兜底：持枪或空手也能近战（默认近战武器拳头）。
+            # 挥拳不算武器磨损——拳头无耐久概念，枪也不该被徒手挥坏。
+            if not wcfg or wcfg.get("kind") != "melee":
+                wcfg = self.cfg.item("fists")
+            else:
+                self._damage_weapon(1)
 
         # 远程命中率由天赋 / buff / 武器 acc_mod 决定，与体力无关（设计红线）。
-        pp = combat.player_profile(self.cfg, st)
+        pp = combat.player_profile(
+            self.cfg, st, weapon=None if ranged else wcfg
+        )
 
         # 霰弹枪等 aoe 武器：一次齐射对所有敌人单独结算（各自独立命中/闪避/暴击）
         aoe = bool(ranged and wcfg.get("aoe"))
@@ -1722,8 +1726,12 @@ class RunEngine:
             # 巢穴清完 → 割巢拿高价值掉落（P6.2.2）
             self._nest_harvest()
             # 尸潮期间清空战斗 = 消灭一波尸潮：潮水退去 + 噪音按
-            # clear_noise_cut 削减（打退追兵后，死寂反而比来之前更彻底）
-            if st.get("horde"):
+            # clear_noise_cut 削减（打退追兵后，死寂反而比来之前更彻底）。
+            # 仅当清掉的这场**真的有潮兵**——尸潮标记可能在普通战斗中途置位
+            # （潮还在路上），清掉普通战斗不该算"打退尸潮"。
+            if st.get("horde") and any(
+                e.get("horde") for e in st["combat"]["enemies"]
+            ):
                 noise.cut_after_wave_clear(self.cfg, st)
                 cut = float(
                     self.cfg.balance["noise"]["horde"].get("clear_noise_cut", 0)
@@ -2232,6 +2240,20 @@ class RunEngine:
 
         self._log("你不明白自己想对遗体做什么。")
 
+    def _armor_max(self, obj: dict, oid: str | None = None) -> int:
+        """护甲实例的耐久上限：修甲每次 −1（实例字段优先），缺省回退配置值。
+
+        旧存档/新拾取的护甲没有 max_durability 字段 → 配置值；有则取实例值
+        （只可能比配置低——上限只减不增）。
+        """
+        oid = oid or obj.get("id")
+        cfg_max = int(self.cfg.item(oid).get("durability", 0) or 0) if oid else 0
+        inst = obj.get("max_durability")
+        if inst is None:
+            return cfg_max
+        inst = int(inst)
+        return min(inst, cfg_max) if cfg_max else inst
+
     def _repair_target(self, iid: str | None = None):
         """找一个还能修的装备（近战武器 / 护甲），返回 (obj, item_id, max_dur, cur_dur)。
 
@@ -2247,7 +2269,11 @@ class RunEngine:
             dur = obj.get("durability")
             if dur is None:
                 return None
-            maxd = int(cfg.item(oid).get("durability", 0) or 0)
+            # 护甲上限读实例值（修甲会磨上限）；武器维持配置上限
+            if cfg.item_kind(oid) == "armor":
+                maxd = self._armor_max(obj, oid)
+            else:
+                maxd = int(cfg.item(oid).get("durability", 0) or 0)
             cur = int(dur)
             if cur < maxd:
                 return (obj, oid, maxd, cur)
@@ -2358,7 +2384,18 @@ class RunEngine:
             )
         res_id = {"scrap": "scrap", "tape": "duct_tape", "cash": "cash"}[pay]
         loot.remove(st, res_id, cost)
-        obj["durability"] = cur + points
+        new_cur = cur + points
+        # 护甲每修一次耐久上限 −1（修起来的每一刀都在伤甲本身）；
+        # 溢出钳制：上限回缩吃掉超出的部分（卡着满修那一刀 = 白修，逼你早修）
+        if cfg.item_kind(wid) == "armor":
+            new_max = max(1, self._armor_max(obj, wid) - 1)
+            obj["durability"] = min(new_cur, new_max)
+            obj["max_durability"] = new_max
+            return True, (
+                f"你用 {cost} {res_name} 把{cfg.item(wid)['name']}修了 {points} 点耐久"
+                f"（{cur}→{obj['durability']}，耐久上限 {new_max}）。"
+            )
+        obj["durability"] = new_cur
         return True, (
             f"你用 {cost} {res_name} 把{cfg.item(wid)['name']}修了 {points} 点耐久"
             f"（{cur}→{cur + points}）。"
@@ -2379,16 +2416,20 @@ class RunEngine:
         # 当前装备优先，再扫背包里的武器/护甲
         candidates = []
         if st_w := self.state.get("weapon"):
-            candidates.append((st_w.get("id"), st_w.get("durability")))
+            candidates.append((st_w, st_w.get("id"), st_w.get("durability")))
         if st_a := self.state.get("armor"):
-            candidates.append((st_a.get("id"), st_a.get("durability")))
+            candidates.append((st_a, st_a.get("id"), st_a.get("durability")))
         for e in self.state["inventory"]:
             if e["qty"] > 0 and cfg.item_kind(e["id"]) in ("weapon", "armor"):
-                candidates.append((e["id"], e.get("durability")))
-        for iid, dur in candidates:
+                candidates.append((e, e["id"], e.get("durability")))
+        for obj, iid, dur in candidates:
             if iid is None or dur is None:
                 continue
-            maxd = int(cfg.item(iid).get("durability", 0) or 0)
+            # 护甲上限读实例值（修甲磨上限）；武器维持配置上限
+            if cfg.item_kind(iid) == "armor":
+                maxd = self._armor_max(obj, iid)
+            else:
+                maxd = int(cfg.item(iid).get("durability", 0) or 0)
             cur = int(dur)
             if cur < maxd:
                 out.append({
@@ -2852,6 +2893,10 @@ class RunEngine:
                 "wearable": kind in ("weapon", "armor", "backpack"),
                 "usable": kind == "consumable",
                 "durability": e.get("durability"),
+                # 品级（仅武器/护甲/背包有）：前端画 T1-T6 徽标
+                "tier": item.get("tier"),
+                # 护甲实例上限（修甲磨上限）：前端显示 cur/max
+                "max_durability": e.get("max_durability") if kind == "armor" else None,
                 "desc": _item_desc(item, kind),
                 # 可出售类道具的预估回收价，前端直接展示，不必自己读配置
                 "sell": max(1, int(round(int(item.get("value", 1)) * _sell_ratio))) if sellable else None,
@@ -2892,6 +2937,7 @@ class RunEngine:
                     "name": wcfg["name"] if wcfg else "空手",
                     "id": wcfg["id"] if wcfg else None,
                     "durability": (st.get("weapon") or {}).get("durability"),
+                    "tier": wcfg.get("tier") if wcfg else None,
                     "ranged": bool(wcfg and wcfg.get("kind") == "ranged"),
                     "desc": _item_desc(wcfg, "weapon") if wcfg else None,
                 },
@@ -2901,9 +2947,8 @@ class RunEngine:
                     {
                         "name": self.cfg.item(st["armor"]["id"])["name"],
                         "durability": (st["armor"] or {}).get("durability"),
-                        "max_durability": int(
-                            self.cfg.item(st["armor"]["id"]).get("durability", 0) or 0
-                        ),
+                        "max_durability": self._armor_max(st["armor"]),
+                        "tier": self.cfg.item(st["armor"]["id"]).get("tier"),
                     }
                     if st.get("armor") else None
                 ),
@@ -2916,6 +2961,7 @@ class RunEngine:
                         "id": st["backpack"]["id"],
                         "name": self.cfg.item(st["backpack"]["id"])["name"],
                         "slots": int(self.cfg.item(st["backpack"]["id"]).get("slots", 0)),
+                        "tier": self.cfg.item(st["backpack"]["id"]).get("tier"),
                         "desc": _item_desc(self.cfg.item(st["backpack"]["id"]), "backpack"),
                     }
                     if st.get("backpack") else None
@@ -3124,7 +3170,8 @@ class RunEngine:
         # 原战斗中 lure 的例外逻辑一并作废——进 Boss 战后只能硬拼。
 
         if st.get("in_combat"):
-            acts.append({"id": "attack", "label": "攻击", "kind": "danger"})
+            melee_held = (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "melee"
+            acts.append({"id": "attack", "label": "攻击" if melee_held else "挥拳", "kind": "danger"})
             if (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "ranged":
                 acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
             acts.append({"id": "flee", "label": "逃跑", "kind": "ghost"})
@@ -3147,7 +3194,8 @@ class RunEngine:
                     acts.append({"id": "evac", "label": "登上直升机", "kind": "primary"})
             elif self._elite_guard_active():
                 # 守门精英还站着：不给下楼按钮，只有打
-                acts.append({"id": "attack", "label": "攻击", "kind": "danger"})
+                melee_held = (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "melee"
+                acts.append({"id": "attack", "label": "攻击" if melee_held else "挥拳", "kind": "danger"})
                 if (combat.equipped_weapon(self.cfg, st) or {}).get("kind") == "ranged":
                     acts.append({"id": "shoot", "label": "射击", "kind": "danger"})
             else:

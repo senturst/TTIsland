@@ -272,6 +272,7 @@ function heldEntries() {
       kind: "weapon", held: true, slot: "weapon",
       wear: state.weapon.durability != null ? state.weapon.durability : null,
       maxWear: state.weapon.max_durability != null ? state.weapon.max_durability : null,
+      tier: state.weapon.tier ?? null,
       desc: state.weapon.desc || null,
     });
   }
@@ -280,20 +281,35 @@ function heldEntries() {
     const aName = typeof state.armor === "string" ? state.armor : state.armor.name;
     const aDur = typeof state.armor === "object" ? state.armor.durability : null;
     const aMax = typeof state.armor === "object" ? state.armor.max_durability : null;
+    const aTier = typeof state.armor === "object" ? state.armor.tier : null;
     entries.push({
       id: "__held_armor__", name: aName, qty: 1, kind: "armor", held: true, slot: "armor",
       wear: aDur != null ? aDur : null,
       maxWear: aMax != null ? aMax : null,
+      tier: aTier ?? null,
       desc: state.armorDesc || null,
     });
   }
   if (state.backpack) {
     entries.push({
       id: "__held_backpack__", name: state.backpack.name, qty: 1,
-      kind: "backpack", held: true, slot: "backpack", desc: state.backpack.desc || null,
+      kind: "backpack", held: true, slot: "backpack",
+      tier: state.backpack.tier ?? null,
+      desc: state.backpack.desc || null,
     });
   }
   return entries;
+}
+
+// 品级徽标：道具右上角 T1-T6 小字 + 同色描边（4-6 为后续地区预留）
+const TIER_BADGE = { 1: "t1", 2: "t2", 3: "t3", 4: "t4", 5: "t5", 6: "t6" };
+
+function addTierBadge(parent, tier) {
+  if (!tier || !TIER_BADGE[tier]) return;
+  const b = document.createElement("span");
+  b.className = `tier-badge ${TIER_BADGE[tier]}`;
+  b.textContent = `T${tier}`;
+  parent.appendChild(b);
 }
 
 export function renderPack(onAction) {
@@ -352,6 +368,8 @@ export function renderPack(onAction) {
     const node = document.createElement(canAct ? "button" : "span");
     node.className = cls.join(" ");
     if (canAct) node.type = "button";
+    node.style.position = "relative";
+    addTierBadge(node, it.tier);
 
     const ic = document.createElement("span");
     ic.className = "icon";
@@ -374,7 +392,8 @@ export function renderPack(onAction) {
     if (it.wear != null) {
       const w = document.createElement("span");
       w.className = "wear";
-      w.textContent = `·${it.wear}`;
+      // 护甲修一次磨一次上限：有实例上限时显示 cur/max
+      w.textContent = it.maxWear != null ? `·${it.wear}/${it.maxWear}` : `·${it.wear}`;
       w.title = "剩余耐久";
       node.appendChild(w);
     }
@@ -512,6 +531,7 @@ function sideCellBase(it) {
     node.classList.add("inert");
     if (it.kind === "trinket") node.classList.add("trinket");
   }
+  addTierBadge(node, it.tier);
 
   const ic = document.createElement("span");
   ic.className = "icon";
@@ -531,8 +551,11 @@ function sideCellBase(it) {
   // 数量 / 耐久（单行小字）
   const tag = document.createElement("span");
   if (it.qty > 1) tag.textContent = `×${it.qty}`;
-  else if (it.wear != null) { tag.textContent = `${it.wear}`; tag.className = "wear"; tag.title = "剩余耐久"; }
-  else tag.textContent = "";
+  else if (it.wear != null) {
+    tag.textContent = it.maxWear != null ? `${it.wear}/${it.maxWear}` : `${it.wear}`;
+    tag.className = "wear";
+    tag.title = "剩余耐久";
+  } else tag.textContent = "";
   if (tag.textContent) node.appendChild(tag);
 
   // 悬停说明：名字 + 耐久 + 道具摘要
@@ -670,6 +693,7 @@ export function renderSidePanel(onAction) {
 
   // 下层：背包里的物品，按类别排序（同 KIND_ORDER）
   const items = (state.inventory || []).filter((i) => i.qty > 0)
+    .map((i) => ({ ...i, wear: i.durability ?? null, maxWear: i.max_durability ?? null }))
     .slice().sort((a, b) => {
       const d = (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9);
       return d !== 0 ? d : a.name.localeCompare(b.name, "zh");

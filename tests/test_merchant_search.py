@@ -31,6 +31,11 @@ async def _new_run(cfg):
     # 隔离随机开局天赋：快速凝血（+2 绷带）等会打破「裸开局基线」断言
     # （曾致 test_merchant_plagued_full_price_when_low 1/20 偶发失败）
     eng.state["talents"] = []
+    # 进地牢第一步可能随机遇敌：战斗中 bag_overflow 按设计延后，
+    # 会打破「拾取即弹决策」类断言——商人/背包测试默认非战斗基线
+    eng.state["in_combat"] = False
+    eng.state.setdefault("combat", {})
+    eng.state["combat"]["enemies"] = []
     return eng
 
 
@@ -367,8 +372,8 @@ def test_bag_overflow_use_action():
         st = eng.state
         st["backpack"] = None
         st["hp"] = 10
-        # 基础容量 8 + 自带 2 条目 → 塞 8 件武器（不可堆叠）= 10 条目 > 8
-        for _ in range(8):
+        # 基础容量 8：自带 1 条目（绷带，默认弹药已取消）+ 塞 9 件武器 = 10 条目 > 8
+        for _ in range(9):
             eng._acquire("crowbar", 1, durability=20)
         assert st["pending_decision"] == "bag_overflow", "应触发溢出决策"
 
@@ -663,6 +668,45 @@ def test_field_repair_outside_merchant():
     asyncio.run(run())
 
 
+def test_armor_repair_reduces_max_durability():
+    """修甲每修一次耐久上限 −1；修满那一刀的溢出被钳掉；修武器不影响上限。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["armor"] = {"id": "bike_helmet", "durability": 10}  # 出厂 25
+        loot.grant(cfg, st, "scrap", 10)
+        st["in_combat"] = False
+
+        await eng.act("repair", {"item": "bike_helmet", "pay": "scrap"})
+        a = st["armor"]
+        per = float(cfg.balance["merchant"]["repair"]["scrap_per_point"])
+        pts = int(1 / per) if per > 0 else 1
+        assert a["durability"] == 10 + pts, f"应修 {pts} 点，实际 {a['durability']}"
+        assert a["max_durability"] == 24, "修一次耐久上限应 −1（25→24）"
+
+        # 只差 1 点满时修：+3 点被上限回缩钳成 +1（23/24 → 24/23 后钳 23/23）
+        st["armor"]["durability"] = 23
+        await eng.act("repair", {"item": "bike_helmet", "pay": "scrap"})
+        a = st["armor"]
+        assert a["max_durability"] == 23
+        assert a["durability"] == 23, "修满那一刀溢出应被钳到新上限"
+        # 修满后不再出现在修理选项
+        assert not any(
+            r["id"] == "bike_helmet" for r in eng._repair_options()
+        ), "实例上限内无可修"
+
+        # 武器修理不引入实例上限
+        st["weapon"]["durability"] = 5
+        await eng.act("repair", {"item": st["weapon"]["id"], "pay": "scrap"})
+        w = st["weapon"]
+        assert w["durability"] == 5 + pts
+        assert "max_durability" not in w, "武器没有实例上限概念"
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     test_merchant_repair_consumes_scrap_and_restores_durability()
     print("✓ 商人修复逐点耗废料且可修满不降上限")
@@ -707,5 +751,6 @@ if __name__ == "__main__":
     test_legacy_unknown_item_entries_are_cleaned()
     print("✓ 旧局遗留未知物品条目加载时清理，不炸响应")
     test_field_repair_outside_merchant()
+    test_armor_repair_reduces_max_durability()
     print("✓ 非商人区域废料逐点修理")
     print("\n商人/搜索/墓碑远程 回归测试全部通过")

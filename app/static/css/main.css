@@ -318,6 +318,27 @@ body::after {
 .pack-item .pack-drop:disabled, .pack-item .pack-fix:disabled { opacity: .45; cursor: default; }
 @keyframes blink { 50% { opacity: .55; } }
 
+/* 品级徽标：道具右上角 T1-T6（白绿蓝紫金红；4-6 为后续地区预留） */
+.tier-badge {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-family: var(--mono);
+  font-size: .58rem;
+  line-height: 1.1;
+  padding: 0 .22em;
+  border: 1px solid;
+  border-radius: 2px;
+  pointer-events: none;
+  opacity: .95;
+}
+.tier-badge.t1 { color: #c9cfc9; border-color: rgba(201, 207, 201, .55); }
+.tier-badge.t2 { color: #7ed09a; border-color: rgba(126, 208, 154, .55); }
+.tier-badge.t3 { color: #6db4ef; border-color: rgba(109, 180, 239, .6); }
+.tier-badge.t4 { color: #b48af0; border-color: rgba(180, 138, 240, .6); }
+.tier-badge.t5 { color: #efc964; border-color: rgba(239, 201, 100, .65); }
+.tier-badge.t6 { color: #f07a6e; border-color: rgba(240, 122, 110, .7); }
+
 /* ============================ 右侧滑出面板（装备/物品格） ============================
  * 上层装备槽 + 下层物品格，网格布局为后续内容扩容准备。
  * transform 过渡滑出/滑入，不参与页面主布局流（position:fixed）。 */

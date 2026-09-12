@@ -73,9 +73,10 @@ def test_stackable_does_not_consume_slots():
         cap = eng._bag_cap()
         assert len(eng.state["inventory"]) == cap, "应已填满容量"
 
-        # 再拾取可堆叠弹药（ammo_t2 已在背包里）→ 不溢出
-        ok = eng._acquire("ammo_t2", 5)
-        assert ok, "已有弹药入包不应溢出"
+        # 再拾取可堆叠绷带（开局自带 1 个）→ 不溢出
+        # （默认弹药已取消，不能再用 ammo_t2 当"已在背包里的堆叠物"）
+        ok = eng._acquire("bandage", 5)
+        assert ok, "已有绷带入包不应溢出"
         assert len(eng.state["inventory"]) == cap, "可堆叠物不占新格"
         assert eng.state["pending_decision"] is None, "未超容量不应触发决策"
 

@@ -227,6 +227,60 @@ def test_wave_clear_only_when_horde_active():
     asyncio.run(run())
 
 
+def test_horde_flag_without_engagement_no_cut():
+    """尸潮标记在普通战斗中途置位：清普通战斗不削减、不平息（潮还在路上）。
+
+    修复前：清场分支只看 st["horde"] 标记——普通战斗期间枪声把标记打响，
+    清掉普通敌人也白得 30% 削噪 + 平息，潮根本还没接战。
+    """
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["in_combat"] = True
+        st["combat"] = {"enemies": [C.make_enemy(cfg, "walker", 1)], "round": 0}
+        st["noise"] = 9.0
+        st["horde"] = True  # 潮在路上，但这场是普通战斗（敌人无潮兵标记）
+        st["weapon"] = {"id": "crowbar"}
+        st["combat"]["enemies"][0]["hp"] = 1
+        eng._acquire = lambda *a, **k: None  # 屏蔽掉落噪音污染
+
+        await eng._act_attack({})
+
+        assert st["horde"] is True, "没打退潮兵不应平息尸潮"
+        assert st["noise"] == 9.0, "清普通战斗不应削减噪音"
+        assert not any("潮水" in l for l in st["log"]), "不应有尸潮平息提示"
+
+    asyncio.run(run())
+
+
+def test_clearing_real_horde_cuts_noise():
+    """清掉**含潮兵**的战斗：削减噪音 + 平息尸潮（走 _enemy_round 真实出口）。"""
+    cfg = get_config()
+
+    async def run():
+        eng = await _new_run(cfg)
+        st = eng.state
+        st["in_combat"] = True
+        horde_enemy = C.make_enemy(cfg, "walker", 1)
+        horde_enemy["horde"] = True  # spawn_horde 打的同一标记
+        horde_enemy["hp"] = 1
+        st["combat"] = {"enemies": [horde_enemy], "round": 0}
+        st["noise"] = 9.0
+        st["horde"] = True
+        st["weapon"] = {"id": "crowbar"}
+        eng._acquire = lambda *a, **k: None
+
+        await eng._act_attack({})
+
+        cut = float(cfg.balance["noise"]["horde"]["clear_noise_cut"])
+        assert st["horde"] is False, "清掉潮兵应平息尸潮"
+        assert abs(st["noise"] - 9.0 * (1 - cut)) < 1e-9, "清掉潮兵应削减噪音"
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     test_gatekeeper_config_exists()
     print("✓ 守门者配置完整")
@@ -244,4 +298,8 @@ if __name__ == "__main__":
     print("✓ 清波削减噪音")
     test_wave_clear_only_when_horde_active()
     print("✓ 非尸潮清场不削减")
+    test_horde_flag_without_engagement_no_cut()
+    print("✓ 潮未接战清普通战斗不削减")
+    test_clearing_real_horde_cuts_noise()
+    print("✓ 清掉真潮兵削减+平息")
     print("\n避战流削弱回归测试全部通过")

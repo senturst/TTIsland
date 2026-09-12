@@ -24,15 +24,21 @@ def clamp_hit(cfg: GameConfig, chance: float) -> int:
 # ----------------------------------------------------------------------
 # 攻击方画像
 # ----------------------------------------------------------------------
-def player_profile(cfg: GameConfig, state: dict) -> dict[str, Any]:
-    """从 run 状态推导玩家的战斗属性（含感染、装备、buff 修正）。"""
+def player_profile(
+    cfg: GameConfig, state: dict, weapon: dict | None = None
+) -> dict[str, Any]:
+    """从 run 状态推导玩家的战斗属性（含感染、装备、buff 修正）。
+
+    weapon：显式覆盖手持武器——拳头兜底攻击（持枪挥拳/空手）时传拳头配置，
+    让命中/暴击/伤害按拳头算而不是按枪算。缺省读当前装备。
+    """
     base = cfg.balance["player"]
     inf = infection_mods(cfg, state.get("infection", 0))
 
     acc = float(base["acc"])
     acc += float(inf["acc"])
 
-    weapon = equipped_weapon(cfg, state)
+    weapon = weapon if weapon is not None else equipped_weapon(cfg, state)
     acc += float(weapon.get("acc_mod", 0)) if weapon else 0.0
 
     crit = float(weapon.get("crit", base["crit"])) if weapon else float(base["crit"])
@@ -76,7 +82,13 @@ def player_profile(cfg: GameConfig, state: dict) -> dict[str, Any]:
     if weapon:
         lo, hi = weapon["dmg"]
         dmg_lo, dmg_hi = float(lo), float(hi)
-        if weapon.get("kind") == "melee" and weapon.get("durability", 1) <= 0:
+        # 破损折损只对"有耐久概念"的近战武器生效；拳头 durability=null 永不破损
+        w_dur = weapon.get("durability")
+        if (
+            weapon.get("kind") == "melee"
+            and w_dur is not None
+            and w_dur <= 0
+        ):
             broken = float(cfg.balance["loot"]["broken_weapon_mult"])
             dmg_lo, dmg_hi = dmg_lo * broken, dmg_hi * broken
 
@@ -292,4 +304,9 @@ def spawn_encounter(
 def spawn_horde(cfg: GameConfig, rng: RNG, level: int) -> list[dict[str, Any]]:
     h = cfg.monsters_cfg["horde"]
     n = rng.rand_range_int(h["count"])
-    return [make_enemy(cfg, h["monster"], level) for _ in range(n)]
+    out = [make_enemy(cfg, h["monster"], level) for _ in range(n)]
+    for m in out:
+        # 潮兵标记：清场分支据此判断"清掉的这场是不是尸潮"——
+        # 尸潮标记在普通战斗期间置位时，清掉普通战斗不该削减噪音
+        m["horde"] = True
+    return out

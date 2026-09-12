@@ -15,6 +15,21 @@
 # ============================================================================
 
 weapons:
+  # 拳头：默认近战兜底，不占背包、不出现在掉落/商店。
+  # 继承到远程武器时近战手段只剩它—— durability: null = 无耐久概念（永不磨损）。
+  - id: fists
+    name: 拳头
+    icon: "✊"
+    kind: melee
+    dmg: [1, 2]
+    acc_mod: -10
+    crit: 0.03
+    noise: 0
+    durability: null
+    weight: 0
+    tier: 1
+    value: 0
+
   - id: crowbar
     name: 撬棍
     icon: "🔧"
