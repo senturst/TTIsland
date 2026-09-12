@@ -142,6 +142,11 @@ def test_evac_carry_applies_selection_and_enters_region2():
             {"id": "canned", "qty": 2},
         ]
         st["weapon"] = {"id": "crowbar", "durability": 20}
+        # 换区整备的前置惨状：高感染/低血/高噪音/尸潮追着
+        st["infection"] = 69
+        st["hp"] = 10
+        st["noise"] = 8.0
+        st["horde"] = True
 
         await eng._apply_evac_carry({
             "weapon": "silenced_smg", "gear": "riot_gear", "other": "bandage",
@@ -153,12 +158,18 @@ def test_evac_carry_applies_selection_and_enters_region2():
         assert st["armor"]["id"] == "riot_gear"
         inv = {e["id"]: e["qty"] for e in st["inventory"]}
         assert inv.get("bandage") == 3, "只带走选中的其他物品"
+        assert inv.get("medkit") == 1, "换区应赠送 1 个医疗箱"
         assert "canned" not in inv and "silenced_smg" not in inv and "riot_gear" not in inv, \
             "其余物品清空（武器/装备进槽位，弹药箱由系统发放）"
         start = int(cfg.balance["player"]["ammo_start"])
         assert loot.count(st, "ammo_t3") == start, "携带远程枪应发对口弹药"
         assert loot.count(st, "scrap") == 0
         assert st["boss_alive"] is False, "L6 不是 Boss 层"
+        # 换区整备：感染清零、生命/体力回满、噪音清零、尸潮平息
+        assert st["infection"] == 0, f"感染应清零，实际 {st['infection']}"
+        assert st["hp"] == st["hp_max"], "进入新地区应回满生命"
+        assert st["noise"] == 0, f"噪音应清零，实际 {st['noise']}"
+        assert st["horde"] is False, "尸潮应平息"
 
     asyncio.run(run())
 
@@ -179,12 +190,13 @@ def test_evac_carry_without_ranged_grants_scrap():
         st["inventory"] = [{"id": "bandage", "qty": 1}]
         st["weapon"] = {"id": "silenced_smg", "durability": 20}
 
-        # 什么都不带 → 新撬棍 + 1 废料，背包清空
+        # 什么都不带 → 新撬棍 + 1 废料，背包清空（另有换区赠送的医疗箱）
         await eng._apply_evac_carry({"weapon": None, "gear": None, "other": None})
 
         assert st["weapon"]["id"] == "crowbar", "没带武器应发制式撬棍"
-        assert [(e["id"], e["qty"]) for e in st["inventory"]] == [("scrap", 1)], \
-            "未选择则不带走其他物品（只发 1 废料）"
+        inv2 = {e["id"]: e["qty"] for e in st["inventory"]}
+        assert inv2 == {"scrap": 1, "medkit": 1}, \
+            f"应只有补给品（废料 1 + 医疗箱 1），实际 {inv2}"
         for a in ("ammo_t1", "ammo_t2", "ammo_t3"):
             assert loot.count(st, a) == 0, f"无远程继承不发 {a}"
 

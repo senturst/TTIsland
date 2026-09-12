@@ -1428,6 +1428,21 @@ class RunEngine:
             loot.grant(cfg, st, "scrap", 1)
             self._log("你只从舱边摸到一块废料。")
 
+        # 换区补给（用户拍板）：新地区开局额外赠送 1 个医疗箱——
+        # 光靠带装的三样活不下来，生存必需品由机组补给
+        loot.grant(cfg, st, "medkit", 1)
+        self._log("机组员从货舱里翻出一支战地医疗包，塞进了你怀里。（医疗包 ×1）")
+
+        # 换区整备（用户拍板）：感染清零、生命/体力回满、噪音清零——
+        # 地区之间是「软重开」：装备与成长保留，状态推倒重来
+        if st.get("infection"):
+            self._add_infection(-float(st["infection"]))  # 走同步：生命上限恢复
+        st["hp"] = st["hp_max"]
+        st["stamina"] = self._stamina_max()
+        st["noise"] = 0.0
+        st["horde"] = False
+        self._log("机组医疗兵替你做了全面清创：感染清零，伤势重新处理。你像重新活了一遍。")
+
         kept = [st["weapon"].get("id")]
         if st.get("armor"):
             kept.append(st["armor"]["id"])
