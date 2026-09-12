@@ -819,6 +819,18 @@ kbd.hot { margin-left: .35rem; }
   }
   .btn-talent { width: 100%; }
 
+  /* 物品行内小按钮（丢弃/修理/卸下）不参与触控放大——
+     44px 大块是命令区的规格；这些 chips 回到紧凑内联尺寸，
+     否则每件物品被撑成三大行，整屏只剩丢弃按钮 */
+  .pack-item .btn.pack-drop, .pack-item .btn.pack-fix,
+  .side-cell .btn.pack-drop, .side-cell .btn.pack-fix {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 0;
+    font-size: .7rem;
+    padding: .18rem .45rem;
+  }
+
   /* 手机没有物理键盘：快捷键提示条和按钮上的键盘徽标既占空间又误导，隐藏 */
   .cmd-hint { display: none; }
   kbd.hot { display: none; }
