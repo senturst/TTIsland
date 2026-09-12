@@ -268,7 +268,7 @@ def test_clearing_real_horde_cuts_noise():
         horde_enemy["horde"] = True  # spawn_horde 打的同一标记
         horde_enemy["hp"] = 1
         st["combat"] = {"enemies": [horde_enemy], "round": 0}
-        st["noise"] = 9.0
+        st["noise"] = 11.0  # 滞后带内（平息 9 < 11 < 触发 12.75）
         st["horde"] = True
         st["weapon"] = {"id": "crowbar"}
         eng._acquire = lambda *a, **k: None
@@ -283,7 +283,7 @@ def test_clearing_real_horde_cuts_noise():
 
         cut = float(cfg.balance["noise"]["horde"]["clear_noise_cut"])
         assert st["horde"] is False, "清掉潮兵应平息尸潮"
-        assert abs(st["noise"] - 9.0 * (1 - cut)) < 1e-9, "清掉潮兵应削减噪音"
+        assert abs(st["noise"] - 11.0 * (1 - cut)) < 1e-9, "清掉潮兵应削减噪音"
 
     asyncio.run(run())
 
